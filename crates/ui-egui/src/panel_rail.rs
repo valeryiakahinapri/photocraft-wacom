@@ -53,10 +53,10 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
             ui.painter().line_segment([pos2(x, r.top() - 8.0), pos2(x, r.bottom() + 8.0)], Stroke::new(1.0, t.separator));
             ui.spacing_mut().item_spacing.y = 4.0;
             // The visibility toggle on top of the rail: one press hides or shows the whole dock
-            // column (the same command the Window menu's row runs — safe in both dock modes and
-            // both themes, and the peek lifecycle guard clears any open peek when it returns).
+            // column. UI-level ids dispatch through menus::invoke — the menu bar and keybinding
+            // path; app.run goes straight to the engine, which only catalogs these ids.
             if crate::icons::button(ui, "panel-right", rb, p.dock, tl!("Show/Hide Panels")).clicked() {
-                if let Err(error) = app.run("window.toggle.dock", json!({})) {
+                if let Err(error) = crate::menus::invoke(app, ui.ctx(), "window.toggle.dock", json!({})) {
                     app.ui.status = error;
                 }
             }

@@ -4,7 +4,7 @@
 use egui::{Key, Modifiers, PointerButton, Pos2, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::*;
 use crate::dock::Group;
@@ -41,6 +41,20 @@ fn press(h: &mut Harness<'static, PhotocraftApp>, at: Pos2) {
     h.run_steps(1);
     h.event(egui::Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
     h.run_steps(2);
+}
+
+/// UI-level ids (window.toggle.*, window.panel.peek…) dispatch through menus::invoke — the
+/// menu bar and keybinding path; app.run reaches only the engine, which catalogs but does
+/// not execute them.
+fn ui_run(h: &mut Harness<'static, PhotocraftApp>, id: &str, params: Value) -> Value {
+    let ctx = h.ctx.clone();
+    crate::menus::invoke(h.state_mut(), &ctx, id, params).expect(id)
+}
+
+/// The same routing for a bare app (no harness): the engine cannot execute UI-level ids.
+fn app_ui_run(app: &mut PhotocraftApp, id: &str, params: Value) -> Value {
+    let ctx = egui::Context::default();
+    crate::menus::invoke(app, &ctx, id, params).expect(id)
 }
 
 /// The rail icon button of `g` (the peek window's title carries the same label as a plain
@@ -95,7 +109,7 @@ fn the_rail_toggle_hides_and_shows_the_dock_column() {
 #[test]
 fn a_rail_icon_opens_a_floating_peek_that_follows_focus() {
     let mut h = harness(app(), vec2(1200.0, 800.0), ThemeKind::Studio);
-    h.state_mut().run("window.toggle.dock", json!({})).unwrap();
+    ui_run(&mut h, "window.toggle.dock", json!({}));
     h.run_steps(3);
     assert!(!h.state().ui.panels.dock);
     // A hidden group's icon still peeks (Character is off by default).
@@ -124,7 +138,7 @@ fn a_rail_icon_opens_a_floating_peek_that_follows_focus() {
     press(&mut h, Pos2::new(60.0, 400.0));
     assert!(h.state().ui.panel_peek.is_none(), "a click outside closes the peek");
     // The command reaches the same state (automation parity), without an anchor.
-    h.state_mut().run("window.panel.peek", json!({"panel": "history", "show": true})).unwrap();
+    ui_run(&mut h, "window.panel.peek", json!({"panel": "history", "show": true}));
     h.run_steps(3);
     assert_eq!(h.state().ui.panel_peek.as_ref().map(|p| p.group), Some(Group::History));
     shoot(&mut h, "peek-history");
@@ -132,30 +146,30 @@ fn a_rail_icon_opens_a_floating_peek_that_follows_focus() {
     h.run_steps(2);
     assert!(h.state().ui.panel_peek.is_none(), "Escape closes the peek");
     // The close box ends it too, and the dock coming back ends it always.
-    h.state_mut().run("window.panel.peek", json!({"panel": "layers"})).unwrap();
+    ui_run(&mut h, "window.panel.peek", json!({"panel": "layers"}));
     h.run_steps(3);
     h.get_by_label("Close").click();
     h.run_steps(2);
     assert!(h.state().ui.panel_peek.is_none(), "the close box closes the peek");
-    h.state_mut().run("window.panel.peek", json!({"panel": "layers"})).unwrap();
+    ui_run(&mut h, "window.panel.peek", json!({"panel": "layers"}));
     h.run_steps(3);
-    h.state_mut().run("window.toggle.dock", json!({})).unwrap();
+    ui_run(&mut h, "window.toggle.dock", json!({}));
     h.run_steps(3);
     assert!(h.state().ui.panels.dock && h.state().ui.panel_peek.is_none(), "the dock returning ends the peek");
     // Tab hiding the chrome with the dock ends a peek too (the peek is a hidden-dock
     // affordance; the guard in peek_window clears it however the dock comes back).
-    h.state_mut().run("window.toggle.dock", json!({})).unwrap();
+    ui_run(&mut h, "window.toggle.dock", json!({}));
     h.run_steps(2);
-    h.state_mut().run("window.panel.peek", json!({"panel": "layers"})).unwrap();
+    ui_run(&mut h, "window.panel.peek", json!({"panel": "layers"}));
     h.run_steps(3);
     assert!(h.state().ui.panel_peek.is_some());
-    h.state_mut().run("window.togglePanels", json!({})).unwrap();
+    ui_run(&mut h, "window.togglePanels", json!({}));
     h.run_steps(3);
     assert!(h.state().ui.panel_peek.is_none(), "Tab's hidden chrome ends the peek");
     // A saved layout applied over an open peek ends it as well (dock::apply).
-    h.state_mut().run("window.toggle.dock", json!({})).unwrap();
+    ui_run(&mut h, "window.toggle.dock", json!({}));
     h.run_steps(2);
-    h.state_mut().run("window.panel.peek", json!({"panel": "layers"})).unwrap();
+    ui_run(&mut h, "window.panel.peek", json!({"panel": "layers"}));
     h.run_steps(3);
     assert!(h.state().ui.panel_peek.is_some());
     let saved = serde_json::to_value(&h.state().ui).unwrap();
@@ -169,15 +183,15 @@ fn a_rail_icon_opens_a_floating_peek_that_follows_focus() {
 fn panel_commands_do_not_resurrect_the_hidden_dock() {
     let mut a = app();
     // A customized layout: group-level activate/close through the shared docking tree.
-    a.run("window.panel.float", json!({"panel": "layers", "x": 320.0, "y": 120.0, "width": 280.0, "height": 300.0})).unwrap();
+    app_ui_run(&mut a, "window.panel.float", json!({"panel": "layers", "x": 320.0, "y": 120.0, "width": 280.0, "height": 300.0}));
     assert!(a.ui.docking.is_some());
     assert!(a.ui.panels.layers);
-    a.run("window.toggle.dock", json!({})).unwrap();
+    app_ui_run(&mut a, "window.toggle.dock", json!({}));
     assert!(!a.ui.panels.dock);
     // An explicit show of a floating member must not bring the column back, and neither may the
     // no-params activate crop_ui fires (#P0-2 both ways: change() and apply_action()).
-    a.run("window.panel.layers", json!({"show": true})).unwrap();
+    app_ui_run(&mut a, "window.panel.layers", json!({"show": true}));
     assert!(!a.ui.panels.dock, "a panel command resurrected the hidden dock");
-    a.run("window.panel.layers", json!({})).unwrap();
+    app_ui_run(&mut a, "window.panel.layers", json!({}));
     assert!(!a.ui.panels.dock, "an activate resurrected the hidden dock");
 }

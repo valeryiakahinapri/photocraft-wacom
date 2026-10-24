@@ -1839,14 +1839,14 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         crate::panel_rail::rail(app, ui, &p, customized);
     }
     // egui wrote a gesture collapse (a drag past the column's minimum) back through
-    // `expanded`: sync the app state through the same commands the rail and menus use, so
-    // whichever way the column came to show — its own flag, or the #6760 tabbed-in chrome —
-    // the right one flips.
+    // `expanded`: sync the app state through the same commands the rail and menus use —
+    // UI-level ids, so they dispatch through menus::invoke (app.run only reaches the
+    // engine, which catalogs but does not execute them) — so whichever way the column
+    // came to show, its own flag or the #6760 tabbed-in chrome, the right one flips.
     if !expanded && (p.dock || tabbed_in) {
-        if p.dock {
-            let _ = app.run("window.toggle.dock", json!({}));
-        } else {
-            let _ = app.run("window.togglePanels", json!({}));
+        let id = if p.dock { "window.toggle.dock" } else { "window.togglePanels" };
+        if let Err(error) = crate::menus::invoke(app, ui.ctx(), id, json!({})) {
+            app.ui.status = error;
         }
     }
     crate::dock::persist(app, ui.ctx());
