@@ -86,6 +86,11 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Va
 
 /// [`invoke`] without the unsaved-changes prompt, for once the user has already answered it.
 pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Value) -> Result<Value, String> {
+    if id == "window.toggle.dockExpanded" {
+        app.ui.panels.dock_expanded = !app.ui.panels.dock_expanded;
+        ctx.data_mut(|data| data.remove::<crate::dock::Group>(egui::Id::new("right-dock-flyout")));
+        return Ok(json!({"expanded": app.ui.panels.dock_expanded}));
+    }
     if let Some(tool) = crate::tool_shortcuts::tool(id) {
         crate::tool_memory::select(app, tool);
         return Ok(json!({"tool": tool}));
@@ -864,6 +869,7 @@ fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
         "window.toggle.navigator" => p.navigator,
         "window.toggle.toolbar" => p.toolbar,
         "window.toggle.dock" => p.dock,
+        "window.toggle.dockExpanded" => p.dock_expanded,
         "window.togglePanels" => p.toolbar || p.options_bar || p.dock,
         "window.toggle.options" => p.options_bar,
         "window.toggle.brushSettings" => p.brush_settings,

@@ -11,9 +11,8 @@ use crate::state::{ColorPanelSliderMode, Tool};
 use crate::theme::{self, Tokens};
 use crate::{PhotocraftApp, icons, widgets};
 
-fn chrome_panel_radius(t: &Tokens) -> CornerRadius {
-    let radius = if t.pro { 10.0 } else { t.radius_lg };
-    CornerRadius::same(radius.round().clamp(0.0, 255.0) as u8)
+pub(crate) fn chrome_panel_radius(t: &Tokens) -> CornerRadius {
+    CornerRadius::same(if t.bevel { 0 } else { t.radius_sm.min(5.0).round() as u8 })
 }
 
 #[cfg(test)]
@@ -24,9 +23,9 @@ mod chrome_surface_tests {
 
     #[test]
     fn pro_chrome_uses_moderate_rounding_without_changing_classic() {
-        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Pro)), CornerRadius::same(10));
+        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Pro)), CornerRadius::same(4));
         assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Classic)), CornerRadius::same(0));
-        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Studio)), CornerRadius::same(12));
+        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Studio)), CornerRadius::same(5));
     }
 }
 
@@ -115,11 +114,12 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let sections = visible_sections(&app.session.prefs().toolbar.hidden);
     // Two columns when the header chevron asks for them; a column that doesn't fit scrolls.
     let double = app.ui.panels.toolbar_double;
-    let w = if double { w1 + bx + 2.0 } else { w1 };
+    let target_width = if double { w1 + bx + 2.0 } else { w1 };
+    let w = ui.ctx().animate_value_with_time(egui::Id::new("toolbar-width"), target_width, 0.22);
     crate::direction::start_panel("toolbar")
         .resizable(false)
-        .exact_size(w)
-        .frame(egui::Frame::NONE.fill(t.chrome).corner_radius(chrome_panel_radius(&t)).inner_margin(egui::Margin::symmetric(m, 8)))
+        .exact_size(w + 8.0)
+        .frame(egui::Frame::NONE.fill(t.canvas).corner_radius(chrome_panel_radius(&t)).inner_margin(egui::Margin::symmetric(m, 8)))
         .show(ui, |ui| {
             // Toolbar width is a user preference, not a Pro-only feature.
             // Keep the same hit target in every theme (including RTL layouts).
@@ -1809,26 +1809,48 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 // ----------------------------------------------------------------------------- dock
 
 pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    // Even legacy destinations must discard gestures captured by an earlier workspace.
-    let customized = crate::panel_docking::show(app, ui);
     let t = Tokens::get(ui.ctx());
     let p = app.ui.panels.clone();
+    let requested_width = ui.ctx().data_mut(|data| data.remove_temp::<f32>(dock_width_id()));
+    let (dock_width, transitioning) = dock_panel_width(ui.ctx(), &t, p.dock_expanded, requested_width);
+    // Even legacy destinations must discard gestures captured by an earlier workspace.
+    let customized = crate::panel_docking::show(app, ui, dock_width, transitioning, requested_width.is_some());
     if t.pro && !customized {
-        dock_panels(app, ui, &p, &t);
+        dock_panels(app, ui, &p, &t, dock_width, transitioning, requested_width.is_some());
     }
     // Narrow icon rail, unless an embedding app hides it: shows, expands or collapses panel groups.
     if p.rail {
-        let (rw, rb) = if t.pro { (36.0, 28.0) } else { (44.0, 32.0) };
+        let (rw, rb) = if t.pro { (44.0, 28.0) } else { (52.0, 32.0) };
+        let mut flyout = None;
+        let mut rail_anchors = Vec::new();
         crate::direction::end_panel("rail")
             .resizable(false)
             .exact_size(rw)
-            .frame(egui::Frame::NONE.fill(t.chrome).corner_radius(chrome_panel_radius(&t)).inner_margin(egui::Margin::symmetric(4, 8)))
+            .frame(
+                egui::Frame::NONE
+                    .fill(t.canvas)
+                    .corner_radius(chrome_panel_radius(&t))
+                    .outer_margin(egui::Margin::same(4))
+                    .inner_margin(egui::Margin::symmetric(4, 8)),
+            )
             .show(ui, |ui| {
                 // The separator is on the canvas side.
                 let r = ui.max_rect();
                 let x = if crate::direction::is_rtl() { r.right() + 6.0 } else { r.left() - 6.0 };
                 ui.painter().line_segment([pos2(x, r.top() - 8.0), pos2(x, r.bottom() + 8.0)], Stroke::new(1.0, t.separator));
                 ui.spacing_mut().item_spacing.y = 4.0;
+                let expand_icon = if p.dock_expanded { "chevrons-right" } else { "chevrons-left" };
+                let expand_label = if p.dock_expanded { tl!("Collapse Panel Dock") } else { tl!("Expand Panel Dock") };
+                if icons::button(ui, expand_icon, rb, false, expand_label).clicked()
+                    && let Err(error) = crate::menus::invoke(app, ui.ctx(), "window.toggle.dockExpanded", json!({}))
+                {
+                    app.ui.status = error;
+                    app.ui.status_error = true;
+                }
+                ui.add_space(3.0);
+                let (separator, _) = ui.allocate_exact_size(vec2(rb, 1.0), Sense::hover());
+                ui.painter().line_segment([separator.left_center(), separator.right_center()], Stroke::new(1.0, t.separator));
+                ui.add_space(3.0);
                 use crate::dock::Group;
                 let entries: [(&str, &str, Group); 6] = [
                     ("sliders-horizontal", tl!("Properties"), Group::Properties),
@@ -1841,21 +1863,126 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 for (icon, name, g) in entries {
                     // Studio floats Properties outside the dock.
                     let docked = t.pro || g != Group::Properties;
-                    let on = if customized { crate::panel_docking::rail_on(app, g) } else { g.shown(&p) && !(docked && app.ui.dock.is_collapsed(g)) };
-                    if icons::rail_button(ui, icon, rb, on, name).clicked() {
-                        if customized {
-                            crate::panel_docking::rail_click(app, g);
+                    let open_flyout = ui.ctx().data(|data| data.get_temp::<Group>(rail_flyout_id()));
+                    let on = if !p.dock_expanded {
+                        open_flyout == Some(g)
+                    } else if customized {
+                        crate::panel_docking::rail_on(app, g)
+                    } else {
+                        g.shown(&p) && !(docked && app.ui.dock.is_collapsed(g))
+                    };
+                    let response = icons::rail_button(ui, icon, rb, on, name);
+                    rail_anchors.push((g, response.rect));
+                    if response.clicked() {
+                        if !p.dock_expanded {
+                            if open_flyout == Some(g) {
+                                ui.ctx().data_mut(|data| data.remove::<Group>(rail_flyout_id()));
+                            } else {
+                                ui.ctx().data_mut(|data| data.insert_temp(rail_flyout_id(), g));
+                                flyout = Some((g, response.rect));
+                            }
                         } else {
-                            crate::dock::rail_click(app, g, docked);
+                            ui.ctx().data_mut(|data| data.remove::<Group>(rail_flyout_id()));
+                            if customized {
+                                crate::panel_docking::rail_click(app, g);
+                            } else {
+                                crate::dock::rail_click(app, g, docked);
+                            }
                         }
                     }
                 }
             });
+        if let Some((group, anchor)) = flyout {
+            show_rail_flyout(app, ui.ctx(), group, anchor, &t);
+        } else if let Some(group) = ui.ctx().data(|data| data.get_temp::<crate::dock::Group>(rail_flyout_id()))
+            && let Some((_, anchor)) = rail_anchors.iter().find(|(candidate, _)| *candidate == group)
+        {
+            show_rail_flyout(app, ui.ctx(), group, *anchor, &t);
+        }
     }
     if !t.pro && !customized {
-        dock_panels(app, ui, &p, &t);
+        dock_panels(app, ui, &p, &t, dock_width, transitioning, requested_width.is_some());
     }
     crate::dock::persist(app, ui.ctx());
+}
+
+fn rail_flyout_id() -> egui::Id {
+    egui::Id::new("right-dock-flyout")
+}
+
+fn show_rail_flyout(app: &mut PhotocraftApp, ctx: &egui::Context, group: crate::dock::Group, anchor: Rect, t: &Tokens) {
+    let screen = ctx.content_rect();
+    let width = 300.0f32.min((screen.width() - 16.0).max(180.0));
+    let max_height = (screen.height() - 24.0).clamp(180.0, 620.0);
+    let x = if crate::direction::is_rtl() { anchor.right() + 8.0 } else { anchor.left() - width - 8.0 };
+    let y = (anchor.top() - 18.0).clamp(screen.top() + 8.0, (screen.bottom() - max_height - 8.0).max(screen.top() + 8.0));
+    let mut close = false;
+    let area = egui::Area::new(egui::Id::new("right-dock-flyout-area")).order(egui::Order::Foreground).fixed_pos(pos2(x, y)).constrain(true).show(ctx, |ui| {
+        ui.set_width(width);
+        ui.set_max_height(max_height);
+        egui::Frame::NONE
+            .fill(t.chrome)
+            .stroke(Stroke::new(1.0, t.card_border))
+            .corner_radius(chrome_panel_radius(t))
+            .shadow(egui::Shadow { offset: [0, 6], blur: 20, spread: 0, color: t.shadow })
+            .inner_margin(egui::Margin::same(8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let title = group.tabs(t.pro).first().map_or_else(|| tl!("Panels").to_owned(), |name| tl!(name).to_owned());
+                    ui.label(RichText::new(title).strong().color(t.text));
+                    ui.with_layout(crate::direction::trailing(), |ui| {
+                        if icons::button(ui, "x", 24.0, false, tl!("Close")).clicked() {
+                            close = true;
+                        }
+                    });
+                });
+                ui.add_space(4.0);
+                ui.separator();
+                let mut tabs = app.ui.dock.visible_tabs(group, t.pro);
+                if tabs.is_empty() {
+                    tabs = group.tabs(t.pro).iter().copied().enumerate().collect();
+                }
+                let labels: Vec<&str> = tabs.iter().map(|(_, name)| tl!(name)).collect();
+                let current = *group.tab_mut(&mut app.ui.dock_tabs);
+                let mut selected = tabs.iter().position(|(index, _)| *index == current).unwrap_or(0);
+                widgets::card(ui, group.key(), &labels, &mut selected, |ui, shown| {
+                    if let Some(&(tab, _)) = tabs.get(shown) {
+                        if group.scrolls_itself(tab) {
+                            dock_body(app, ui, group, tab);
+                        } else {
+                            egui::ScrollArea::vertical().id_salt(("rail-flyout", group.key())).show(ui, |ui| dock_body(app, ui, group, tab));
+                        }
+                    }
+                });
+                if let Some(&(tab, _)) = tabs.get(selected) {
+                    *group.tab_mut(&mut app.ui.dock_tabs) = tab;
+                    app.ui.dock.show_tab(group, tab, t.pro);
+                }
+            });
+    });
+    let outside_click = ctx.input(|input| {
+        input.pointer.any_pressed() && input.pointer.interact_pos().is_some_and(|pointer| !area.response.rect.contains(pointer) && !anchor.contains(pointer))
+    });
+    if close || outside_click || ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
+        ctx.data_mut(|data| data.remove::<crate::dock::Group>(rail_flyout_id()));
+    }
+}
+
+pub(crate) fn dock_last_width_id() -> egui::Id {
+    egui::Id::new("right-dock-last-expanded-width")
+}
+
+fn dock_panel_width(ctx: &egui::Context, t: &Tokens, expanded: bool, requested: Option<f32>) -> (f32, bool) {
+    let range = dock_width_range(ctx.content_rect().width());
+    let default_width = if t.pro { 290.0 } else { 300.0 };
+    let saved = ctx.data(|data| data.get_temp::<f32>(dock_last_width_id())).unwrap_or(default_width);
+    let target = requested.unwrap_or(saved).clamp(*range.start(), *range.end());
+    if requested.is_some() {
+        ctx.data_mut(|data| data.insert_temp(dock_last_width_id(), target));
+    }
+    let progress = ctx.animate_bool_with_time(egui::Id::new("right-dock-expanded"), expanded, 0.22);
+    let transitioning = if expanded { progress < 0.999 } else { progress > 0.001 };
+    (target * progress, transitioning)
 }
 
 /// The dock's narrowest width (points). It is the right dock, on the left in a right-to-left UI.
@@ -1882,7 +2009,7 @@ pub fn request_dock_width(ctx: &egui::Context, w: f32) {
     ctx.data_mut(|d| d.insert_temp(dock_width_id(), w));
 }
 
-fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Panels, t: &Tokens) {
+fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Panels, t: &Tokens, width: f32, transitioning: bool, requested: bool) {
     use crate::dock::Group;
     // Floating in Studio, Properties docks only in Pro (Photoshop).
     let shown: Vec<Group> = [
@@ -1897,21 +2024,36 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Pan
     .into_iter()
     .filter_map(|(g, on)| on.then_some(g))
     .collect();
-    if shown.is_empty() {
+    if shown.is_empty() || width <= 0.5 {
         return;
     }
     let margin = if t.pro { 2 } else { 8 };
+    let range = dock_width_range(ui.ctx().content_rect().width());
     let mut panel = crate::direction::end_panel("dock")
-        .resizable(true)
+        .resizable(!transitioning)
         .default_size(if t.pro { 290.0 } else { 300.0 })
-        .size_range(dock_width_range(ui.ctx().content_rect().width()));
-    if let Some(w) = ui.ctx().data_mut(|d| d.remove_temp::<f32>(dock_width_id())) {
-        panel = panel.exact_size(w);
+        .size_range(if transitioning { 0.0..=*range.end() } else { range.clone() });
+    if transitioning || requested {
+        panel = panel.exact_size(width);
     }
-    panel.frame(egui::Frame::NONE.fill(t.dock).corner_radius(chrome_panel_radius(t)).inner_margin(egui::Margin::same(margin))).show(ui, |ui| {
-        // Groups keep their heights whatever they show (#88): see `dock`.
-        crate::dock::show(app, ui, &shown, dock_body);
-    });
+    if transitioning && width < DOCK_MIN_WIDTH {
+        panel
+            .frame(
+                egui::Frame::NONE.fill(if t.bevel { t.dock } else { t.canvas }).corner_radius(chrome_panel_radius(t)).inner_margin(egui::Margin::same(margin)),
+            )
+            .show(ui, |_| {});
+        return;
+    }
+    let response = panel
+        .frame(egui::Frame::NONE.fill(if t.bevel { t.dock } else { t.canvas }).corner_radius(chrome_panel_radius(t)).inner_margin(egui::Margin::same(margin)))
+        .show(ui, |ui| {
+            // Groups keep their heights whatever they show (#88): see `dock`.
+            crate::dock::show(app, ui, &shown, dock_body);
+        });
+    if p.dock_expanded && !transitioning {
+        let last_width = response.response.rect.width().clamp(*range.start(), *range.end());
+        ui.ctx().data_mut(|data| data.insert_temp(dock_last_width_id(), last_width));
+    }
 }
 
 /// One dock group's tab content; `dock` bounds it and scrolls it when it's taller.
@@ -6566,7 +6708,7 @@ mod toolbar_tests {
             crate::theme::ThemeKind::BreezeDark,
         ] {
             let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
-            let mut h = egui_kittest::Harness::builder().with_size(vec2(800.0, 1400.0)).build_ui_state(
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(800.0, 1400.0)).with_step_dt(1.0 / 60.0).build_ui_state(
                 |ui, app: &mut PhotocraftApp| {
                     if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
                         toolbar(app, ui);
@@ -6583,12 +6725,12 @@ mod toolbar_tests {
             assert!(!h.state().ui.panels.toolbar_double, "{theme:?}");
 
             h.get_by_label("Toolbar").click();
-            h.run_steps(2);
+            h.run_steps(16);
             assert!(h.state().ui.panels.toolbar_double, "{theme:?}");
             assert!(left(&h) > single + 20.0, "{theme:?}: the toolbar did not widen: {single} -> {}", left(&h));
 
             h.get_by_label("Toolbar").click();
-            h.run_steps(2);
+            h.run_steps(16);
             assert!(!h.state().ui.panels.toolbar_double, "{theme:?}");
             assert_eq!(left(&h), single, "{theme:?}");
         }

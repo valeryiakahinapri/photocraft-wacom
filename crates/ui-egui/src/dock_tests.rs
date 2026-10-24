@@ -976,6 +976,10 @@ fn tab_hides_all_panels_and_shift_tab_only_the_dock() {
     assert!(!app.ui.panels.dock && app.ui.panels.toolbar, "⇧Tab hides only the dock");
     run(&mut app, "window.toggle.dock");
     assert!(app.ui.panels.dock);
+    run(&mut app, "window.toggle.dockExpanded");
+    assert!(!app.ui.panels.dock_expanded, "the dock can fold without changing Shift+Tab visibility");
+    run(&mut app, "window.toggle.dockExpanded");
+    assert!(app.ui.panels.dock_expanded);
     // Everything hidden by hand: Tab shows it all.
     (app.ui.panels.toolbar, app.ui.panels.options_bar, app.ui.panels.dock) = (false, false, false);
     run(&mut app, "window.togglePanels");
@@ -988,6 +992,31 @@ fn tab_hides_all_panels_and_shift_tab_only_the_dock() {
     let mut v = serde_json::to_value(crate::state::Panels::default()).unwrap();
     v.as_object_mut().unwrap().remove("dock");
     assert!(serde_json::from_value::<crate::state::Panels>(v).unwrap().dock);
+    let mut old_panels = serde_json::to_value(crate::state::Panels::default()).unwrap();
+    old_panels.as_object_mut().unwrap().remove("dock_expanded");
+    assert!(serde_json::from_value::<crate::state::Panels>(old_panels).unwrap().dock_expanded);
+}
+
+#[test]
+fn folded_dock_rail_opens_and_dismisses_panel_flyouts() {
+    use egui_kittest::kittest::Queryable;
+
+    let (app, _, _) = app_with_layers();
+    let mut h = harness(app, vec2(1200.0, 800.0), ThemeKind::ProMedium);
+    h.state_mut().ui.panels.dock_expanded = false;
+    h.run_steps(20);
+
+    h.get_by_label("Layers").click();
+    h.run_steps(2);
+    assert_eq!(h.ctx.data(|data| data.get_temp::<Group>(egui::Id::new("right-dock-flyout"))), Some(Group::Layers));
+
+    h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: Some(egui::Key::Escape), pressed: true, repeat: false, modifiers: Modifiers::NONE });
+    h.run_steps(2);
+    assert_eq!(h.ctx.data(|data| data.get_temp::<Group>(egui::Id::new("right-dock-flyout"))), None);
+
+    h.get_by_label("Expand Panel Dock").click();
+    h.run_steps(20);
+    assert!(h.state().ui.panels.dock_expanded);
 }
 
 #[test]
