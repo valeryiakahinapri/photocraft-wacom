@@ -7,6 +7,7 @@ LOG = "/home/z/logs/test-codespace.log"
 STATUS = "/home/z/logs/test-codespace.status"
 
 SCRIPT = r"""set -e
+export PATH="/home/codespace/.cargo/bin:$PATH"
 cd /workspaces/photocraft-wacom
 git fetch origin feature/right-panel-collapse 2>&1 | tail -1
 git worktree remove --force /tmp/panel-rail-test 2>/dev/null || true
@@ -15,7 +16,7 @@ git worktree add --detach /tmp/panel-rail-test origin/feature/right-panel-collap
 cd /tmp/panel-rail-test
 export PHOTOCRAFT_PANEL_RAIL_FIXTURES=/tmp/fixtures
 export CARGO_TARGET_DIR=/tmp/test-target
-cargo test -p photocraft-ui-egui --locked panel_rail -- --nocapture 2>&1 | tail -80
+cargo test -p photocraft-ui-egui --locked panel_rail -- --nocapture
 echo "TEST_RC=$?"
 """
 
