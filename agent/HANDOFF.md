@@ -22,7 +22,20 @@ extraction + plumbing + popover + labels + peek + kittests.
 
 ## Immediate scope
 
-1. **Test results**: the kittests were re-launched on the CODESPACE (the right home for
+1. **Kittests — BLOCKED, one experiment left (see worklog "the SIGTERM wall")**: four detached
+   codespace runs all ended with rustc SIGTERMed ~8 minutes into any single big-crate compile
+   (engine, ui-egui) — the codespace's memory-pressure watchdog + the live agent's ~1.5-2G of
+   VS Code/copilot overhead on the 8G box. Small crates compile fine; wasm + check gates pass.
+   Options (in order): (a) after the live agent is idle/removed, re-run — its overhead gone
+   may drop the peak below the wall; (b) ask the user about adding a 4G swapfile in codespace
+   /tmp (root, 38G free — helps the live agent too, but it IS a system-level write to its box);
+   (c) after codespace handover, run in ITS warm target/debug (fast). The launcher
+   (/tmp/run-tests.sh, detached pattern, incremental back ON) and warm /tmp/test-target
+   (~5G, engine+ui-egui remain) are already in place — just re-launch and poll /tmp/test-run.rc.
+   The three tests themselves: COMPILE-VERIFIED up to ui-egui (E0063/E0596 fixed, pushed); they
+   have never EXECUTED. Everything else is green: wasm build, cargo check --target wasm32
+   (L0-L6, rc=0, ~5 min local), rustfmt clean, i18n rows in 21 catalogs.
+   The kittests were re-launched on the CODESPACE (the right home for
    them — a native test graph does NOT fit on the local 9.9G disk, see worklog) in the
    isolated worktree /tmp/panel-rail-test + CARGO_TARGET_DIR=/tmp/test-target:
    check /home/z/logs/test-codespace.{status,log} (status OK + `TEST_RC=0` marker = pass).
