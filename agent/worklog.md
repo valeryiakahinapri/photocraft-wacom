@@ -135,3 +135,58 @@ Next: pilot the cache-inherit flow (source+target in one mtime-preserving tar �
 noop-build test → one-crate incremental timing) once the live agent is idle and its WIP
 is committed. Durable copies: /home/sync/photocraft-agent/toolchain/ (tarball + trunk
 cache), this branch.
+
+---
+
+## Session 2 — 2026-10-24 (Z.ai sandbox, continued)
+
+### The local build pilot RAN END TO END (the fan-out plan is now measured, not theory)
+
+- Codespace resurrected via `cs ensure` (12h cap had stopped it); live agent STILL working:
+  `trunk build --release` in wasm-opt stage. All reads; no writes to its tree.
+- Discovered the live agent moved the cheap-build config INTO the workspace Cargo.toml
+  (uncommitted): `[profile.wasm-release] lto=false, codegen-units=16` — so its cache reflects
+  the profile in-file, no env needed. It is mid packaging-evaluation (13 MiB gzip note in the
+  diff), Cargo.toml profile change NOT committed by us (not our call) — build parity instead:
+  env overrides hash identically to in-file settings (verified: zero mass rebuild).
+- Pulled source + warm target cache: 658M zst (2 cs-get parts, ~5 min), extract 5s, sed path
+  remap 4069 fingerprint files 0.5s. **Result: ~600 registry crates fresh; one-time rebuild of
+  craft-ui + workspace crates 8m30s; noop 0.3s; ui-egui edit → full wasm 70s; trunk bundle
+  11.3s.** Full numbers + recipe in agent/kb/local-build-fanout.md.
+- Setup: /home/z/pc-edit (worktree, feature branch) → rsync -rc → /home/z/pc-build (build
+  workspace, mtime-pristine). Scripts: tools/{pull_cache,sync-build,serve_dist,run_tests,
+  add_i18n_rows}.py|sh.
+
+### Panel rail feature (the stress-test task) — designed, reviewed, implemented
+
+- Design doc agent/design/2026-10-24-panel-rail-collapse.md → sub-agent review round
+  (verdict "needs changes", 3 P0s: window.toggle.<key> unusable for popover rows (Character
+  has no slot; Brushes migrates legacy workspaces); panel_docking's panels.dock=true
+  re-asserts resurrect collapsed; lib.rs restructure would break Pro rail order/persistence)
+  → REV2 incorporated → implemented on feature/right-panel-collapse (snapshot WIP commit +
+  A extraction + B plumbing + C popover + D labels + E peek + tests):
+  - panel_rail.rs: rail extracted; top `panel-right` toggle → popover (Hide/Show Dock row +
+    7 group checkboxes via set_group_shown dispatcher); icons mode gains Character.
+  - Collapsed dock: rail = 90° rotated labels of shown groups (epaint TextShape.angle, RTL
+    mirrored), scrollable; click → floating peek window (tab pills + shared dock body) that
+    closes on Escape/close-box/click-outside/dock-return/dock::apply.
+  - window.panel.peek command + is_enabled row; panel_peek transient state (serde skip);
+    P0-2 re-assert removals; Hide Dock/Show Dock localized in all 21 catalogs (report-gated).
+- 6 commits pushed to origin (b6725404 tip). Branch = origin/main + live-agent WIP snapshot
+  (minus its Cargo.toml profile hunk) + feature commits; rebases clean before any PR.
+
+### Browser E2E — the harness itself failed interestingly (see kb/web-e2e-tooling.md)
+
+- egui web boots fine in headless chromium; File menu (press-gesture) opens; RELEASE-driven
+  clicked() never fires from agent-browser's mouse events (plain popups/menus/items dead);
+  synthetic PointerEvents ignored (untrusted); accesskit DOM empty; VLM "read" a popover from
+  a baseline-identical image because the prompt described it (md5 caught it).
+- PIVOTED to egui_kittest (repo's own gate): panel_rail_tests.rs (3 tests) + PNG fixtures via
+  env-gated h.render(). Native test build launched in background (cold, ~30-60 min).
+
+### Still open
+
+- Native kittest run result (background daemon; fix failures if any, push).
+- Deferred to next session: panel_body dedupe (own commit, scroll behavior); cargo check
+  wasm gate + clippy once tests settle; codespace /tmp/pull cleanup; GitLab mirror still
+  blocked (revoked token); Phase-2 questions to the user still open (see PLAN).

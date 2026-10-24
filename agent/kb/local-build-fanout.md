@@ -81,9 +81,49 @@ Pillars proven on this sandbox:
 - **zstd CLI missing locally** (no sudo): `pip install zstandard` +
   `scripts/zstd-extract.py` (agent-meta) handles .tar.zst; or use plain .tar.gz.
 
-## Open measurements (fill in during pilot)
+## Open measurements (filled in during pilot — 2026-10-24 session 2)
 
-- [ ] noop-build time after cache pull (fingerprint survival rate)
-- [ ] one-crate incremental build + LTO=false link time on 2 cores
-- [ ] peak RSS of the LTO=false link (headroom check for 4G)
-- [ ] codespace 4-core cold-build wall time vs 2-core (when we bump, if we bump)
+All numbers measured on this sandbox (2 vCPU, overlay disk). The whole flow ran end to end:
+
+- [x] **Cache pull**: codespace tar (source + target/wasm32-unknown-unknown/wasm-release +
+      target/wasm-release, mtimes preserved, zstd -3) = 658M → split 450m parts → `cs get`
+      ×2 ≈ 5 min total (2.0-2.6 MB/s through the relay). Extract 2.1G = **5s** on overlay.
+- [x] **Fingerprint path remap** (the make-or-break): sed across target's `.d`/`.fingerprint`/
+      build outputs/`.rustc_info.json` (4069 files, 0.5s):
+      `/workspaces/photocraft-wacom→/home/z/pc-build`, `/home/codespace/.cargo→/home/z/.cargo`,
+      `/home/codespace/.rustup→/home/z/.rustup`. Result: **~600 registry dep crates survived**;
+      only craft-ui (git dep) + the ~24 workspace crates rebuilt = 8m30s one-time cost.
+- [x] **True noop rebuild**: **0.3-1.2s**. Incremental (touch ui-egui → full wasm build +
+      link): **~70s**. That is the whole edit→wasm inner loop on 2 vCPU.
+- [x] **Profile override parity**: cache built with `lto=false, codegen-units=16` written in the
+      workspace Cargo.toml is ALSO fresh when the file reverts to upstream `lto=fat` and the same
+      settings come from `CARGO_PROFILE_WASM_RELEASE_LTO=false
+      CARGO_PROFILE_WASM_RELEASE_CODEGEN_UNITS=16` env — env overrides hash identically, so the
+      feature branch (which does NOT commit the live agent's Cargo.toml hack) builds warm.
+      LTO=false link peak RAM fine on 4G no-swap; fat-LTO release links stay on the codespace.
+- [x] **Full web bundle**: `trunk build` (dev mode: data-cargo-profile still forces
+      wasm-release; wasm-opt is release-only) = **11.3s** when cargo is a noop (wasm-bindgen +
+      assets). NO_COLOR must be unset/false for trunk 0.21 CLI (`invalid value '1'`).
+- [x] **Native kittest tests**: cold host build of the ui-egui test graph ≈ 25-45 min on 2 vCPU
+      (measure in worklog); afterwards incremental test runs are minutes. ui-egui has NO `heif`
+      feature — that belongs to the app crates.
+
+### The working pipeline (session-2 recipe)
+
+Layout: `/home/z/photocraft-wacom` = clone on `agent-meta` (docs) with `/home/z/pc-edit`
+worktree on the feature branch; `/home/z/pc-build` = mtime-pristine build workspace inherited
+from the codespace tar (NO git inside).
+
+1. Edit in `/home/z/pc-edit` (git history, pushes). 2. `bash /home/z/tools/sync-build.sh`
+   (`rsync -rc --delete` minus .git/target/dist/.agents — content-checksummed so unchanged files
+   keep pc-build mtimes → cargo cache stays warm). 3. Build in pc-build with
+   `PATH=/home/z/.cargo/bin CARGO_HOME=/home/z/.cargo RUSTUP_HOME=/home/z/.rustup
+   CARGO_PROFILE_WASM_RELEASE_LTO=false CARGO_PROFILE_WASM_RELEASE_CODEGEN_UNITS=16
+   cargo build --offline --locked --target wasm32-unknown-unknown --profile wasm-release
+   -p photocraft-web --features heif` (~70s after ui-egui edits). 4. `trunk build` for the web
+   bundle; `python3 /home/z/tools/serve_dist.py` serves dist/web on :8765 (double-fork).
+   5. NEVER sync target back; one-way git→build flow. Live agent's uncommitted tree state comes
+   across in the tar (build parity); its Cargo.toml profile hunk is intentionally NOT committed.
+
+Scripts (mirrored in agent/scripts + /home/sync): pull_cache.py (transfer daemon),
+sync-build.sh, serve_dist.py, run_tests.py, add_i18n_rows.py, zstd-extract.py.
