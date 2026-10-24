@@ -107,16 +107,18 @@ codegen-units = 1
 
 # The browser build (apps/photocraft-web, `data-cargo-profile` in its index.html). Hosts cap the
 # size of a single file (Cloudflare Pages/Workers: 25 MiB), and the wasm is downloaded on every
-# visit, so this profile optimizes for size: fat LTO, opt-level "z" for PhotoCraft's own crates,
-# "s" for dependencies and for the crates that decode files, and 3 for pixel processing (filters
-# and compositing). Dependencies stay at "s": at "z" the whole wasm grows (by 0.4 MB, measured).
+# visit, so this profile optimizes for size: opt-level "z" for PhotoCraft's own crates, "s" for
+# dependencies and decoding crates, and 3 for pixel processing (filters and compositing).
+# Binaryen's final -Oz pass removes dead code at the module level; fat LTO with one codegen unit
+# exceeded the hosted runner limit, while no LTO and 16 units completed and produced a 13 MiB gzip.
+# Dependencies stay at "s": at "z" the whole wasm grows (by 0.4 MB, measured).
 # panic stays the target default (wasm32-unknown-unknown aborts; AGENTS.md's `panic = "unwind"`
 # is for the native app shell). packaging/web/package.sh fails the build above 24 MiB.
 [profile.wasm-release]
 inherits = "release"
 opt-level = "z"
-lto = "fat"
-codegen-units = 1
+lto = false
+codegen-units = 16
 strip = "debuginfo"
 
 [profile.wasm-release.package."*"]

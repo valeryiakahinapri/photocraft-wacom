@@ -37,7 +37,7 @@ fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens) {
     crate::direction::end_panel("rail")
         .resizable(false)
         .exact_size(rw)
-        .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(4, 8)))
+        .frame(egui::Frame::NONE.fill(t.chrome).corner_radius(super::chrome_panel_radius(&t)).inner_margin(egui::Margin::symmetric(4, 8)))
         .show(ui, |ui| {
             // The separator is on the canvas side.
             let r = ui.max_rect();

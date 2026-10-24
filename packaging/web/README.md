@@ -45,10 +45,9 @@ the default Rust version is the stable release CI used when the `Dockerfile` was
 `--build-arg PHOTOCRAFT_BUILD_SHA=$(git rev-parse HEAD) --build-arg PHOTOCRAFT_BUILD_DATE=$(date -u +%F)`.
 The web build does not embed the optional `craft-fonts` checkout.
 
-The Docker build uses thin LTO and one Cargo build job to reduce peak memory, while keeping
-the web profile's size optimizations and `wasm-opt -Oz`. Its Wasm size may differ from the
-release zip figures below; NGINX has no 25 MiB file limit. To use the release zip's fat LTO on
-a builder with more memory, pass `--build-arg CARGO_PROFILE_WASM_RELEASE_LTO=fat`.
+The Docker build uses the same no-LTO/16-codegen-unit size profile as the release zip and one
+Cargo build job to reduce peak memory, followed by `wasm-opt -Oz`. Its Wasm size may differ
+from the release zip figures below; NGINX has no 25 MiB file limit.
 `--build-arg CARGO_BUILD_JOBS=4` enables more concurrent compilation on larger builders. A compiler killed with
 `SIGKILL`/`cannot allocate memory` means the Docker/Podman VM needs more memory or swap.
 
@@ -102,8 +101,8 @@ without reaching that limit (issue #5302). A build straight from Trunk (`trunk b
 in `apps/photocraft-web`, or the Docker image above) still has the app in one `.wasm`, for hosts
 without such a cap.
 
-The app is built with the `wasm-release` Cargo profile (fat LTO, size-optimized code with the
-pixel and file-decoding crates kept at speed) plus `wasm-opt -Oz`, and stores the bundled fonts
+The app is built with the `wasm-release` Cargo profile (no LTO, 16 codegen units, size-optimized
+code with the pixel and file-decoding crates kept at speed) plus `wasm-opt -Oz`, and stores the bundled fonts
 (PhotoCraft's and egui's) and the translation catalogs compressed, unpacked on first use.
 
 ## Any path works

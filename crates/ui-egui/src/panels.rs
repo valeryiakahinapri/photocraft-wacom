@@ -11,6 +11,27 @@ use crate::state::Tool;
 use crate::theme::{self, Tokens};
 use crate::{PhotocraftApp, icons, widgets};
 
+/// Rounded side-panel chrome (the fork's style delta): moderate rounding in the Pro themes,
+/// the theme's large radius elsewhere, clamped to CornerRadius's u8 range.
+fn chrome_panel_radius(t: &Tokens) -> CornerRadius {
+    let radius = if t.pro { 10.0 } else { t.radius_lg };
+    CornerRadius::same(radius.round().clamp(0.0, 255.0) as u8)
+}
+
+#[cfg(test)]
+mod chrome_surface_tests {
+    use super::chrome_panel_radius;
+    use crate::theme::{ThemeKind, Tokens};
+    use egui::CornerRadius;
+
+    #[test]
+    fn pro_chrome_uses_moderate_rounding_without_changing_classic() {
+        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Pro)), CornerRadius::same(10));
+        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Classic)), CornerRadius::same(0));
+        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Studio)), CornerRadius::same(12));
+    }
+}
+
 pub mod actions;
 pub mod adjust_ui;
 pub mod apply_color;

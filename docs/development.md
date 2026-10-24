@@ -497,9 +497,46 @@ trunk build --release              # writes ../../dist/web (index.html, .js glue
 trunk serve --release              # dev server on http://127.0.0.1:8765
 ```
 
-Any static file server works for `dist/web`, for example `python3 -m http.server 8765` run inside that directory. Trunk downloads the matching `wasm-bindgen` and `wasm-opt` itself. `trunk build --release` uses the `wasm-release` Cargo profile (`data-cargo-profile` in `index.html`: fat LTO, opt-level "z" for the UI, engine, I/O and web shells and for large crates off the hot paths (document model, file parsers, JSON, SVG parsing, shader translation), "s" for other crates except pixel processing, which keeps level 3). The UI override reduces browser code size while retaining the speed-oriented settings for filters and compositing. Serve the `.wasm` with compression; its raw size varies with the source and compiler. Some static hosts refuse a file that large (Cloudflare's per-file cap is 25 MiB), so the release site doesn't hold it as one file: `packaging/web/package.sh` gzips it, cuts it into parts of at most 20 MiB under `app/`, and ships the page of `apps/photocraft-web-boot`, a small module that fetches the parts, has the browser inflate them (or inflates them itself where the browser can't) and passes the stream to the app's own loader (issue #5302). The script fails if any file in the site is over 24 MiB; the wasm's own size is no longer limited, but it is still what every visitor downloads, so watch it. Pull-request CI also builds the actual browser app with the same pinned Trunk version as the release job and runs `packaging/web/package.sh`, including the relative-URL and file-size checks. The `web build and wasm size gate` check runs on main and on PRs that change something the web build compiles or packages (`apps/photocraft-web`, `apps/photocraft-web-boot`, `packaging/web`, crate sources and manifests, `Cargo.toml`/`Cargo.lock`, the CI workflow), and reports the wasm's size and the site's largest file in the Actions job summary. The web build never embeds craft-fonts (see Fonts above). To see where the bytes go, run `twiggy top -n 40` on `target/wasm32-unknown-unknown/wasm-release/photocraft-web.wasm` (before wasm-opt strips the names).
+Any static file server works for `dist/web`, for example `python3 -m http.server 8765` run inside that directory. Trunk downloads the matching `wasm-bindgen` and `wasm-opt` itself. `trunk build --release` uses the `wasm-release` Cargo profile (`data-cargo-profile` in `index.html`): opt-level "z" for the UI, engine, I/O and web shells and for large crates off the hot paths (document model, file parsers, JSON, SVG parsing, shader translation), "s" for other crates except pixel processing, which keeps level 3. It uses 16 codegen units without LTO to stay within hosted runner limits, followed by a single Binaryen `-Oz` pass; the module measured 13.1 MB gzip on the current toolchain. The UI override reduces browser code size while retaining the speed-oriented settings for filters and compositing. Serve the `.wasm` with compression; its raw size varies with the source and compiler. Some static hosts refuse a file that large (Cloudflare's per-file cap is 25 MiB), so the release site doesn't hold it as one file: `packaging/web/package.sh` gzips it, cuts it into parts of at most 20 MiB under `app/`, and ships the page of `apps/photocraft-web-boot`, a small module that fetches the parts, has the browser inflate them (or inflates them itself where the browser can't) and passes the stream to the app's own loader (issue #5302). The script fails if any file in the site is over 24 MiB; the wasm's own size is no longer limited, but it is still what every visitor downloads, so watch it. Pull-request CI also builds the actual browser app with the same pinned Trunk version as the release job and runs `packaging/web/package.sh`, including the relative-URL and file-size checks. The `web build and wasm size gate` check runs on main and on PRs that change something the web build compiles or packages (`apps/photocraft-web`, `apps/photocraft-web-boot`, `packaging/web`, crate sources and manifests, `Cargo.toml`/`Cargo.lock`, the CI workflow), and reports the wasm's size and the site's largest file in the Actions job summary. The web build never embeds craft-fonts (see Fonts above). To see where the bytes go, run `twiggy top -n 40` on `target/wasm32-unknown-unknown/wasm-release/photocraft-web.wasm` (before wasm-opt strips the names).
 
 URL flags: `?webgl` forces the WebGL2 backend, and `?cpu` forces the CPU canvas path.
+
+### Browser JavaScript engine API
+
+The WASM app publishes `globalThis.PhotoCraft` for host-page integrations and browser automation.
+It owns an independent headless engine session; it does not edit the document currently shown in the
+eframe canvas. Calls are synchronous and use the same engine command registry as the CLI. Global
+methods accept one object per operation; the exported `PhotoCraftBridge` class provides the same
+operations as positional methods and gives each instance isolated state. Global `open` accepts
+`{name, bytes}` and `convert` accepts `{name, bytes, format, options}`, with `bytes` as a
+`Uint8Array`; `create` accepts the JSON parameters of
+`file.new`; `execute` takes `{id, params}`; `run` takes `{steps}` in the same action formats as
+`photocraft-cli run`; `commands` returns CLI-shaped JSON rows and accepts an optional filter string
+or `{filter}` object using the CLI's case-insensitive id/label/keyword matching; `info` returns a
+JSON-compatible object; and `export` returns
+`{bytes: Uint8Array, warnings}`. `batch` takes `{inputs: [{name, bytes}], steps, format, options}`
+and returns one byte buffer per input. Export options use the CLI spellings (`quality`, `tga_bits`,
+`dpx_bits`, `tiff_compression`, `jpeg_format`, `dds_compression`, `dds_mipmaps`, `tiff_layers`).
+Errors throw in JavaScript instead of returning success-shaped fallback values.
+
+For example, after the page has loaded:
+
+```js
+PhotoCraft.create({width: 128, height: 128});
+PhotoCraft.run({steps: [["layer.new.layer", {name: "Example"}]]});
+const info = PhotoCraft.info();
+const {bytes, warnings} = PhotoCraft.export({format: "png"});
+```
+
+This is deliberately an in-memory browser surface, not a browser implementation of CLI filesystem
+paths, droplet directories, MCP, or local TCP/stdio servers. Supply files as bytes; export does not
+follow external linked-object paths. Handle returned buffers with the page's file/download APIs.
+The methods run on the browser main thread;
+large imports, commands, and exports can block rendering. Keep such calls to user-initiated work
+and prefer the desktop/CLI for long batch jobs. The Node oracle harness is
+`apps/photocraft-web/tests/js-bridge.mjs`; CI runs it against `photocraft-cli` after the browser
+release build, comparing shared command metadata, document info, command results, and encoded output
+bytes.
 
 To build and serve the web app entirely in Docker, run from the repository root:
 

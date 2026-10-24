@@ -352,6 +352,15 @@ jobs:
       # parts, checks the 24 MiB per-file limit and exercises the packaging step release.yml uses.
       - name: Build and verify browser release
         run: packaging/web/package.sh
+      - name: Verify browser JavaScript bridge against CLI
+        run: |
+          cargo build --locked -p photocraft-cli
+          wasm_bindgen="$(find "$HOME/.cache/trunk" -type f -name wasm-bindgen -executable -print -quit)"
+          if [ -z "$wasm_bindgen" ]; then
+            echo "error: wasm-bindgen was not found in Trunk's cache" >&2
+            exit 1
+          fi
+          WASM_BINDGEN="$wasm_bindgen" node apps/photocraft-web/tests/js-bridge.mjs
       - name: Report wasm size
         if: success()
         run: |
