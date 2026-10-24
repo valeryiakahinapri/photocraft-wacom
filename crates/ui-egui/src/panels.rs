@@ -1819,15 +1819,35 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // In Full Screen Mode, Tab shows the dock over the black canvas even when it was hidden
     // (#6760): the tabbed-in view brings the column back without touching its flag.
     let tabbed_in = app.ui.view.hides_chrome() && app.ui.panels.full_screen_chrome;
-    let show_column = p.dock || tabbed_in;
-    if show_column && t.pro && !customized {
-        dock_panels(app, ui, &p, &t);
-    }
-    if crate::panel_rail::rail_visible(&p) {
+    // The column slides open and closed around its flags (`Panel::show_collapsible` lays the
+    // content out at full width, clips it to the animated slice, and hands gesture collapses
+    // back through `expanded`): a toggle flip retargets the slide, and while it slides the
+    // column keeps drawing, so the canvas widens as the panel narrows. A fully closed panel
+    // draws nothing at all.
+    let mut expanded = p.dock || tabbed_in;
+    if !customized {
+        if t.pro {
+            dock_panels(app, ui, &mut expanded, &p, &t);
+        }
+        if crate::panel_rail::rail_visible(&p) {
+            crate::panel_rail::rail(app, ui, &p, customized);
+        }
+        if !t.pro {
+            dock_panels(app, ui, &mut expanded, &p, &t);
+        }
+    } else if crate::panel_rail::rail_visible(&p) {
         crate::panel_rail::rail(app, ui, &p, customized);
     }
-    if show_column && !t.pro && !customized {
-        dock_panels(app, ui, &p, &t);
+    // egui wrote a gesture collapse (a drag past the column's minimum) back through
+    // `expanded`: sync the app state through the same commands the rail and menus use, so
+    // whichever way the column came to show — its own flag, or the #6760 tabbed-in chrome —
+    // the right one flips.
+    if !expanded && (p.dock || tabbed_in) {
+        if p.dock {
+            let _ = app.run("window.toggle.dock", json!({}));
+        } else {
+            let _ = app.run("window.togglePanels", json!({}));
+        }
     }
     crate::dock::persist(app, ui.ctx());
 }
@@ -1856,7 +1876,7 @@ pub fn request_dock_width(ctx: &egui::Context, w: f32) {
     ctx.data_mut(|d| d.insert_temp(dock_width_id(), w));
 }
 
-fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Panels, t: &Tokens) {
+fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, expanded: &mut bool, p: &crate::state::Panels, t: &Tokens) {
     use crate::dock::Group;
     // Floating in Studio, Properties docks only in Pro (Photoshop).
     let shown: Vec<Group> = [
@@ -1875,17 +1895,24 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Pan
         return;
     }
     let margin = if t.pro { 2 } else { 8 };
+    // The rail's icons and toggle are the way back in, so the collapsed column leaves no
+    // stray grab handle of its own next to them (`drag_to_open(false)`).
     let mut panel = crate::direction::end_panel("dock")
         .resizable(true)
         .default_size(if t.pro { 290.0 } else { 300.0 })
-        .size_range(dock_width_range(ui.ctx().content_rect().width()));
+        .size_range(dock_width_range(ui.ctx().content_rect().width()))
+        .drag_to_open(false);
     if let Some(w) = ui.ctx().data_mut(|d| d.remove_temp::<f32>(dock_width_id())) {
         panel = panel.exact_size(w);
     }
-    panel.frame(egui::Frame::NONE.fill(t.dock).corner_radius(chrome_panel_radius(t)).inner_margin(egui::Margin::same(margin))).show(ui, |ui| {
-        // Groups keep their heights whatever they show (#88): see `dock`.
-        crate::dock::show(app, ui, &shown, dock_body);
-    });
+    panel.frame(egui::Frame::NONE.fill(t.dock).corner_radius(chrome_panel_radius(t)).inner_margin(egui::Margin::same(margin))).show_collapsible(
+        ui,
+        expanded,
+        |ui| {
+            // Groups keep their heights whatever they show (#88): see `dock`.
+            crate::dock::show(app, ui, &shown, dock_body);
+        },
+    );
 }
 
 /// One dock group's tab content; `dock` bounds it and scrolls it when it's taller.
