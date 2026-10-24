@@ -19,8 +19,13 @@ Z.ai sandbox (control plane)                GH Codespace (build plane)
   durable = github (agent-meta branch) + /home/sync
 ```
 
-- **Local NEVER compiles Rust.** 2 vCPU / 4G / 9.3G free disk vs a ~10G target dir; recycle
-  wipes /home/z anyway. Local = read/grep/patch/docs/orchestrate/sub-agents.
+- **Local compiles TOO (revised 2026-10-24):** the same toolchain (extracted from the backup
+  tarball into /home/z/.cargo + .rustup + .cache/trunk) plus the INHERITED wasm target cache
+  (codespace tar + sed path remap) make the sandbox a second build lane: true-noop rebuild
+  0.3s, ui-egui edit to full wasm 70s, trunk bundle 11.3s. Native kittest cold builds are
+  the slow exception (30-60 min once, incremental after). Recipe + all numbers:
+  agent/kb/local-build-fanout.md. Fat-LTO release links + wasm-opt + packaging still belong
+  to the codespace. Local = control plane + iteration lane.
 - **Codespace `miniature-waddle-gx65q95446v4cv4`** (basicLinux32gb, 2c/8G/32G) compiles
   everything. Whole container root survives stop/start; only /tmp is wiped on start;
   a rebuild resets everything except /workspaces — the 569M toolchain backup tarball at
@@ -89,3 +94,20 @@ Z.ai sandbox (control plane)                GH Codespace (build plane)
 - Background processes die at toolcall end unless double-forked (python daemonize recipe).
 - Kit state (.state/ gh profiles) is in the zai-codespaces clone — recyclable, rebuilt by
   bootstrap; never store anything precious only there.
+
+## Session-2 additions (2026-10-24)
+
+- **The local build loop** (edit→wasm→bundle in ~80s): pc-edit worktree → `rsync -rc` →
+  pc-build (mtime-pristine) → cargo with `CARGO_PROFILE_WASM_RELEASE_LTO=false
+  CARGO_PROFILE_WASM_RELEASE_CODEGEN_UNITS=16` (the env vars hash identically to the live
+  agent's in-file lto=false — verified, so its Cargo.toml hack stays uncommitted).
+- **Trunk CLI**: breaks with `NO_COLOR=1` (wants true/false). `trunk build` dev mode still
+  builds the wasm-release profile (data-cargo-profile) but skips wasm-opt — good.
+- **Browser E2E lies**: agent-browser mouse events never trigger egui release-clicks;
+  synthetic PointerEvents ignored (untrusted); accesskit DOM empty; VLM confirms whatever
+  the prompt describes — md5/pixel-diff screenshots first. kittest + PNG fixtures = truth
+  (agent/kb/web-e2e-tooling.md).
+- **js bridge**: `window.PhotoCraft` ({id,params}/{steps} envelope) drives an INDEPENDENT
+  headless session, not the visible UI.
+- Python `sys._exit` does not exist in this container — daemonize with `os._exit`.
+- functools.partial subclassing crashes http.server — subclass the handler directly.
