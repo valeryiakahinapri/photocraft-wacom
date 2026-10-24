@@ -24,6 +24,16 @@ Update it as items start/finish. Immediate next-session scope lives in HANDOFF.m
 - [ ] (await user confirmation of agent completion before taking ownership / committing)
 - Snapshot of WIP at 2026-10-24T00:22Z: `wip/2026-10-24T00:22Z/` on agent-meta branch
 
+### Phase 1.5 — local build fan-out (PILOT READY, 2026-10-24)
+Local sandbox proven capable of inherited-cache incremental wasm builds:
+- [x] Toolchain extracted locally (rustc 1.99.1 == codespace, trunk 0.21.14, wasm target)
+- [x] Storage lanes measured (overlay=build, ossfs/polarfs=transport/backup only)
+- [x] kb/local-build-fanout.md written (profile facts, LTO=false env requirement, recipe)
+- [ ] PILOT: pull source+wasm-target tarball from codespace → noop-build test →
+      one-crate incremental timing (blocked on: live agent idle + WIP committed)
+- Decision: release/fat-LTO + wasm-opt + packaging stay on codespace; local does
+  cargo-check + LTO=false incrementals + patch authoring.
+
 ### Phase 2 — the actual web project integration (NOT STARTED — needs user input)
 - [ ] Define the host project: framework, hosting, embedding model (iframe? same-page canvas?
       headless engine-as-library via the bridge, UI hidden?)
@@ -56,6 +66,9 @@ Update it as items start/finish. Immediate next-session scope lives in HANDOFF.m
    version for stability while we customize?
 4. Codespace economics: stay on basicLinux32gb or upgrade to 4-core/16G for faster wasm
    builds? (wasm-release full build ≈ the slow gate; 4-core roughly halves it.)
+   → ANSWERED 2026-10-24 (kb/local-build-fanout.md): per-build core-hour cost is ~constant
+   (billing is core-hours); 4-core = same quota per build, half wall time, 2x idle burn,
+   +RAM/disk headroom. Plan: bump only for cold-build/release windows.
 
 ## Risk register
 

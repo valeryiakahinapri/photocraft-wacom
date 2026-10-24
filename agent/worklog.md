@@ -100,3 +100,38 @@ branch of valeryiakahinapri/photocraft-wacom.
   fork/branch strategy for custom app code, and when I get codespace ownership.
 - Watch the codespace 12h hard cap (created 20:47Z → ~08:47Z); `cs start` resurrects with
   /workspaces intact.
+
+---
+
+## Session 1, round 2 — 2026-10-24 (build-parallelism + local fan-out investigation)
+
+User asked: (a) does rustc benefit from 4-core/16G? (b) can the local sandbox do
+final-link/incremental builds on inherited codespace caches? (c) storage placement.
+
+Investigations + results (all recorded in agent/kb/local-build-fanout.md):
+
+- Read workspace Cargo.toml profiles: wasm-release = fat LTO + codegen-units=1 + per-crate
+  opt-level z/s/3 → crate-graph phase parallelizes (cores help ~linearly), final LTO link
+  + wasm-opt are serial single-process (cores don't help, RAM does).
+- Discovered the live agent's build env via /proc/PID/environ: it builds with
+  CARGO_PROFILE_WASM_RELEASE_LTO=false + CODEGEN_UNITS=16 → its 1.5G
+  target/wasm32-unknown-unknown cache is inheritable ONLY with the same env (and those
+  overrides are what make a local link feasible on 4G no-swap RAM).
+- Storage benchmark (scripts/storage-bench.py): overlay /home/z 1021MB/s W vs ossfs 89 /
+  polarfs 110; small-file create 0ms vs 28.7/21.0 ms/file → target dirs live ONLY on
+  overlay; ossfs/polarfs are transport/backup lanes. PolarFS (durable across recycles)
+  is the staging lane for tarballs.
+- Pulled the 569M toolchain backup via cs get (3m45s, ~2.6MB/s base64-over-ssh; sha256
+  verified against remote sidecar) and extracted to /home/z (needed `pip install
+  zstandard` + scripts/zstd-extract.py — no zstd CLI, no sudo locally).
+- LOCAL TOOLCHAIN PROVEN: rustc 1.99.1 (58cf8f9c3, bit-identical to codespace), cargo
+  1.99.1, trunk 0.21.14, wasm-bindgen 0.2.129 + wasm-opt v123 caches; hello-wasm builds
+  in 0.14s. Disk after: 2.6G/9.9G used.
+- Answered PLAN open-question #4 (codespace economics): billing is core-hours → per-build
+  quota cost ~constant across machine sizes; 4-core halves wall time for cold builds,
+  doubles idle burn; bump only for cold-build/release windows.
+
+Next: pilot the cache-inherit flow (source+target in one mtime-preserving tar → local
+noop-build test → one-crate incremental timing) once the live agent is idle and its WIP
+is committed. Durable copies: /home/sync/photocraft-agent/toolchain/ (tarball + trunk
+cache), this branch.
