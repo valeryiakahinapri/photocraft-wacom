@@ -208,3 +208,23 @@ cache), this branch.
   origin/feature/right-panel-collapse) + CARGO_TARGET_DIR=/tmp/test-target — the live agent's
   tree and caches untouched; fixtures to /tmp/fixtures; daemon logs at
   /home/z/logs/test-codespace.{log,status}.
+
+### The SIGTERM wall (session-2 close-out)
+
+Four detached codespace test runs all ended the same way: any SINGLE rustc compile that runs
+longer than ~8 minutes (engine, ui-egui — the two big crates) is SIGTERM'd mid-flight. With
+incremental on, engine survived (attempt 1 got 25 min of small crates + died only at ui-egui);
+with incremental off the fingerprint change invalidated engine and IT died first — isolating
+the trigger to long-single-process, not total load. Codespace state stayed Available, keepalives
+green, so this is the box's own memory-pressure watchdog (8G total minus ~1.5-2G of live-agent
+VS Code/copilot overhead; rustc peaks 4-6G on those crates). Fixes for next session are options
+in HANDOFF #1: idle-agent retry, user-approved swapfile, or post-handover warm-target run.
+Along the way: remote detached runs need setsid+nohup (plain cs exec's session dies at ~30 min
+relay drop); remote bash is non-login so PATH needs /home/codespace/.cargo/bin; never pipe
+cargo into tail under set -e (masks rc). Test code itself is compile-clean at 1513ebb6
+(E0063 physical_key/repeat + E0596 mut-Harness fixed); the three tests have never executed.
+
+Gates at session close: wasm build GREEN (70-80s loop), cargo check --target wasm32
+(wasm-release, -p photocraft-web --features heif) GREEN locally, fmt clean, design REV3,
+worklog/PLAN/HANDOFF/SKILL/kb all pushed (agent-meta d8b59a6b tip), feature branch
+1513ebb6 (7 commits), /home/sync refreshed.
