@@ -286,15 +286,34 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             // goes through Save As, so the original is never overwritten with less (#3806).
             let choices = crate::FormatChoices::from_params(&params, id)?;
             match params.get("path").and_then(Value::as_str) {
-                Some(path) => app.save_as_with(Some(path.to_string()), choices),
+                Some(path) => {
+                    // PHASE-B: an explicit-path save of an identity doc in a
+                    // layered format writes inline — arm the echo (a flat
+                    // format gate inside; a failed save clears the slot).
+                    crate::cloud::arm_save_for_path(app, path);
+                    let result = app.save_as_with(Some(path.to_string()), choices);
+                    if result.is_err() {
+                        crate::cloud::clear_pending(app);
+                    }
+                    result
+                }
                 None => {
                     let own = app.session.active().and_then(|d| d.path.clone().map(|p| (photocraft_engine::file_cmds::holds_at(&d.doc, &p), p, d)));
                     match own {
                         Some((true, path, d)) => {
                             // Another app changed the file since it was opened or saved: ask first (#6596).
+                            // PHASE-B: the in-place write arms the identity
+                            // echo (the disk-change intercept is web-inert —
+                            // no disk polling on wasm — so the write lands
+                            // inline here; a failed save clears the slot).
                             let doc = d.doc.id;
-                            crate::disk_change_prompt::intercept(app, doc, &path, false, crate::FormatChoices::default())
-                                .unwrap_or_else(|| app.save_in_place(path, crate::FormatChoices::default()))
+                            crate::cloud::arm_save_for_path(app, &path);
+                            let outcome = crate::disk_change_prompt::intercept(app, doc, &path, false, crate::FormatChoices::default())
+                                .unwrap_or_else(|| app.save_in_place(path, crate::FormatChoices::default()));
+                            if outcome.is_err() {
+                                crate::cloud::clear_pending(app);
+                            }
+                            outcome
                         }
                         Some((false, path, d)) if photocraft_engine::file_cmds::saves_in_place(&path) => {
                             // Its own file is layered but can't hold what the document has now.
