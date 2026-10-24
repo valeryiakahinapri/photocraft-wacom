@@ -46,9 +46,12 @@ type Served = Arc<Mutex<ServedFonts>>;
 
 pub fn start() {
     eframe::WebLogger::init(log::LevelFilter::Info).ok();
+    if let Err(error) = crate::js_bridge::install_global() {
+        log::error!("could not install the PhotoCraft JavaScript API: {error:?}");
+    }
     wasm_bindgen_futures::spawn_local(async {
         let Some(document) = web_sys::window().and_then(|w| w.document()) else {
-            log::error!("no document");
+            log::debug!("no browser document; skipping visual app startup");
             return;
         };
         let Some(canvas) = document.get_element_by_id(CANVAS_ID).and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok()) else {

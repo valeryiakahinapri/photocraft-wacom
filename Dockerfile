@@ -35,9 +35,8 @@ RUN set -eu; \
 WORKDIR /src
 COPY . .
 WORKDIR /src/apps/photocraft-web
-# Docker serving has no static-host per-file size cap. Thin LTO uses less build
-# memory than the release zip's fat LTO; retain the profile's other optimizations.
-ARG CARGO_PROFILE_WASM_RELEASE_LTO=thin
+# Match the size-focused no-LTO/16-codegen-unit profile used by the release package.
+ARG CARGO_PROFILE_WASM_RELEASE_LTO=false
 ARG CARGO_BUILD_JOBS=1
 # Optional build provenance shown in About and `--version` (crates/engine/src/build_info.rs).
 # .git is not in the build context, so pass it in, e.g.
