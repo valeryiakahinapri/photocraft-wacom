@@ -318,8 +318,8 @@ impl Tokens {
                 primary_text: Color32::WHITE,
                 danger: Color32::from_rgb(236, 91, 98),
                 warning: Color32::from_rgb(232, 176, 70),
-                radius_sm: 3.0,
-                radius: 4.0,
+                radius_sm: 4.0,
+                radius: 5.0,
                 radius_lg: 6.0,
                 bevel: false,
                 pro: true,
@@ -999,7 +999,7 @@ pub fn apply(ctx: &egui::Context, kind: ThemeKind) {
     let t = Tokens::for_kind(kind);
     ctx.data_mut(|d| d.insert_temp(egui::Id::new("photocraft-theme"), t));
     let mut v = if t.dark() { Visuals::dark() } else { Visuals::light() };
-    v.panel_fill = t.chrome;
+    v.panel_fill = t.canvas;
     v.window_fill = t.card;
     v.window_stroke = Stroke::new(1.0, t.card_border);
     v.extreme_bg_color = t.field;

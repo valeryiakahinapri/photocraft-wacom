@@ -2592,7 +2592,7 @@ fn tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
         .focus
         .and_then(|job| opening.iter().position(|(open, _, _)| *open == job))
         .map_or_else(|| app.session.active_index().unwrap_or(0), |p| tab_count + p);
-    let frame = egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 4 }).show(ui, |ui| {
+    let frame = egui::Frame::NONE.fill(t.card).inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 4 }).show(ui, |ui| {
         let (row, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), tab_h), Sense::hover());
         let f = fit_doc_tabs(&natural, selected, row.width());
         let mut x = row.left();
@@ -2622,7 +2622,7 @@ fn tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
             });
             doc_tabs.push((i, r));
             if sel {
-                ui.painter().rect_filled(r, t.radius_sm, t.card);
+                ui.painter().rect_filled(r, t.radius_sm, t.canvas);
                 ui.painter().rect_stroke(r, t.radius_sm, Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
             } else if resp.hovered() {
                 ui.painter().rect_filled(r, t.radius_sm, t.hover.gamma_multiply(0.5));
@@ -2665,7 +2665,7 @@ fn tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
             let name_g = crate::tab_strip::elided(ui, name, font.clone(), t.text, (r.width() - STUDIO_TAB_PAD + STUDIO_TAB_GAP - meta_g.size().x).max(1.0));
             let resp = ui.interact(r, ui.id().with(("dtabjob", job.0)), Sense::click());
             if sel {
-                ui.painter().rect_filled(r, t.radius_sm, t.card);
+                ui.painter().rect_filled(r, t.radius_sm, t.canvas);
                 ui.painter().rect_stroke(r, t.radius_sm, Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
             } else if resp.hovered() {
                 ui.painter().rect_filled(r, t.radius_sm, t.hover.gamma_multiply(0.5));
@@ -2962,15 +2962,14 @@ fn pro_tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
         let resp = ui.interact(r, ui.id().with(("ptab", i)), Sense::click_and_drag());
         let sel = Some(i) == active;
         if sel {
-            ui.painter().rect_filled(r, 0.0, t.chrome);
+            ui.painter().rect_filled(r, t.radius_sm, t.canvas);
         } else if resp.hovered() {
-            ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.35));
+            ui.painter().rect_filled(r, t.radius_sm, t.hover.gamma_multiply(0.35));
         }
         if dragging.is_some_and(|p| r.contains(p)) {
             drag_over = Some(i);
-            ui.painter().rect_stroke(r, 0.0, Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
+            ui.painter().rect_stroke(r, t.radius_sm, Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
         }
-        ui.painter().line_segment([r.right_top(), r.right_bottom()], Stroke::new(1.0, t.separator));
         let (xr, at) = pro_tab_layout(r, g.size().y, mac);
         let xresp = ui.interact(xr, ui.id().with(("ptabx", i)), Sense::click());
         // Painted: name the tab and its × for accessibility (and so tests and agents can find them).
@@ -3003,11 +3002,10 @@ fn pro_tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
         let resp = ui.interact(r, ui.id().with(("ptabjob", job.0)), Sense::click());
         let sel = app.jobs.focus == Some(*job);
         if sel {
-            ui.painter().rect_filled(r, 0.0, t.chrome);
+            ui.painter().rect_filled(r, t.radius_sm, t.canvas);
         } else if resp.hovered() {
-            ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.35));
+            ui.painter().rect_filled(r, t.radius_sm, t.hover.gamma_multiply(0.35));
         }
-        ui.painter().line_segment([r.right_top(), r.right_bottom()], Stroke::new(1.0, t.separator));
         crate::jobs_ui::tab_underline(ui, r, *frac, &t);
         let (xr, at) = pro_tab_layout(r, g.size().y, mac);
         let xresp = ui.interact(xr, ui.id().with(("ptabjobx", job.0)), Sense::click());

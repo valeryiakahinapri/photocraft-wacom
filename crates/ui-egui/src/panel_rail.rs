@@ -2,11 +2,14 @@
 //!
 //! The same icon list shows in both states (the owner's modern-canvas-studio grammar): while
 //! the dock column shows, an icon toggles its group (collapse-to-strip, #129-safe); while the
-//! dock is hidden (`window.toggle.dock`), the icon opens the group as a floating peek — the
-//! one lit icon — and clicking it again closes it. The toggle on top hides and shows the dock
-//! column itself. The rail hides with the whole chrome when Tab does or an embedding app
-//! turns `panels.rail` off. Extracted from `panels::right_dock` so rail behaviours (visibility
-//! toggling, peeks) live beside the dock machinery without growing the panels module.
+//! column is hidden — folded (`window.toggle.dockExpanded`, the rail's top toggle) or hidden
+//! outright (`window.toggle.dock`, ⇧Tab) — the icon opens the group as a floating peek, the
+//! one lit icon, and clicking it again closes it. The fold toggle on top folds and unfolds the
+//! column's content without touching its visibility; the fold is its own persisted preference,
+//! so Tab round-trips never undo it. The rail hides with the whole chrome when Tab does or an
+//! embedding app turns `panels.rail` off. Extracted from `panels::right_dock` so rail
+//! behaviours (visibility toggling, peeks) live beside the dock machinery without growing the
+//! panels module.
 
 use crate::PhotocraftApp;
 use crate::dock::Group;
@@ -38,29 +41,48 @@ fn icon(group: Group) -> &'static str {
     }
 }
 
-/// Draw the rail. `customized` is whether the shared (dragged-out) panel layout owns visibility.
-pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, customized: bool) {
+/// Draw the rail. `customized` is whether the shared (dragged-out) panel layout owns visibility;
+/// `column_shown` is whether the dock column is visible right now (visible AND unfolded, or the
+/// #6760 tabbed-in chrome): the icons toggle groups while it shows and open peeks while not.
+pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, customized: bool, column_shown: bool) {
     let t = Tokens::get(ui.ctx());
-    let (rw, rb) = if t.pro { (36.0, 28.0) } else { (44.0, 32.0) };
+    let (rw, rb) = if t.pro { (44.0, 28.0) } else { (52.0, 32.0) };
     let resp = crate::direction::end_panel("rail")
         .resizable(false)
         .exact_size(rw)
-        .frame(egui::Frame::NONE.fill(t.chrome).corner_radius(crate::panels::chrome_panel_radius(&t)).inner_margin(egui::Margin::symmetric(4, 8)))
+        .frame(
+            egui::Frame::NONE
+                .fill(t.canvas)
+                .corner_radius(crate::panels::chrome_panel_radius(&t))
+                .outer_margin(egui::Margin::same(4))
+                .inner_margin(egui::Margin::symmetric(4, 8)),
+        )
         .show(ui, |ui| {
-            // The separator is on the canvas side.
+            // The separator is on the canvas side; the outer margin puts the island's edge 4px
+            // further out than the content rect, so the line clears it by 2px at ±10.
             let r = ui.max_rect();
-            let x = if crate::direction::is_rtl() { r.right() + 6.0 } else { r.left() - 6.0 };
+            let x = if crate::direction::is_rtl() { r.right() + 10.0 } else { r.left() - 10.0 };
             ui.painter().line_segment([pos2(x, r.top() - 8.0), pos2(x, r.bottom() + 8.0)], Stroke::new(1.0, t.separator));
             ui.spacing_mut().item_spacing.y = 4.0;
-            // The visibility toggle on top of the rail: one press hides or shows the whole dock
-            // column. UI-level ids dispatch through menus::invoke — the menu bar and keybinding
-            // path; app.run goes straight to the engine, which only catalogs these ids.
-            if crate::icons::button(ui, "panel-right", rb, p.dock, tl!("Show/Hide Panels")).clicked() {
-                if let Err(error) = crate::menus::invoke(app, ui.ctx(), "window.toggle.dock", json!({})) {
+            // The fold toggle on top of the rail: one press folds or unfolds the dock column's
+            // content (`window.toggle.dockExpanded` — the fold is its own persisted preference;
+            // ⇧Tab's `window.toggle.dock` hides the column outright). UI-level ids dispatch
+            // through menus::invoke — the menu bar and keybinding path; app.run goes straight
+            // to the engine, which only catalogs these ids.
+            let (fold_icon, fold_label) = if p.dock_expanded {
+                (if crate::direction::is_rtl() { "chevrons-left" } else { "chevrons-right" }, tl!("Collapse Panel Dock"))
+            } else {
+                (if crate::direction::is_rtl() { "chevrons-right" } else { "chevrons-left" }, tl!("Expand Panel Dock"))
+            };
+            if crate::icons::button(ui, fold_icon, rb, false, fold_label).clicked() {
+                if let Err(error) = crate::menus::invoke(app, ui.ctx(), "window.toggle.dockExpanded", json!({})) {
                     app.ui.status = error;
                 }
             }
-            ui.separator();
+            ui.add_space(3.0);
+            let (separator, _) = ui.allocate_exact_size(egui::vec2(rb, 1.0), egui::Sense::hover());
+            ui.painter().line_segment([separator.left_center(), separator.right_center()], Stroke::new(1.0, t.separator));
+            ui.add_space(3.0);
             // One constant icon list in both states (the owner's mockup grammar): the icons
             // toggle their group while the column shows, and open a floating peek while it is
             // hidden — clicking the peeked icon again closes it (the no-params `window.panel.peek`
@@ -69,13 +91,13 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
                 // Studio floats Properties outside the dock.
                 let docked = t.pro || g != Group::Properties;
                 let peeked = app.ui.panel_peek.as_ref().is_some_and(|peek| peek.group == g);
-                let on = if p.dock {
+                let on = if column_shown {
                     if customized { crate::panel_docking::rail_on(app, g) } else { g.shown(p) && !(docked && app.ui.dock.is_collapsed(g)) }
                 } else {
                     peeked
                 };
                 if crate::icons::rail_button(ui, icon(g), rb, on, g.label()).clicked() {
-                    if p.dock {
+                    if column_shown {
                         if customized {
                             crate::panel_docking::rail_click(app, g);
                         } else {
@@ -118,15 +140,18 @@ fn peek_window_id(g: Group) -> egui::Id {
 /// ([`rail`]). A peek follows focus, like inspector panels that collapse: Escape, the window's
 /// close, a press on another rail icon, or the next pointer press outside the window and the
 /// rail closes it and returns the group to its dimmed icon. Never shown while the dock column
-/// itself is visible (a peek is a hidden-dock affordance; the arm in `window.toggle.dock`
-/// clears it).
+/// itself is visible (a peek is a hidden-column affordance; the arms in `window.toggle.dock`
+/// and `window.toggle.dockExpanded` clear it).
 pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some(peek) = app.ui.panel_peek.clone() else { return };
     let g = peek.group;
-    // A peek is a hidden-dock affordance only: the column coming back — however that happened
-    // (the rail toggle, Tab chrome, ui.set, a workspace) — or the rail itself disappearing ends
-    // it, whatever path forgot to clear the state on the way.
-    if app.ui.panels.dock || !rail_visible(&app.ui.panels) {
+    // A peek is a hidden-column affordance only: the column coming back — however that happened
+    // (the fold opening, the dock returning while unfolded, the #6760 tabbed-in chrome, ui.set,
+    // a workspace) — or the rail itself disappearing ends it, whatever path forgot to clear the
+    // state on the way. The dock returning while folded keeps it: the column stays hidden, so
+    // the peek is still the only view of that panel.
+    let tabbed_in = app.ui.view.hides_chrome() && app.ui.panels.full_screen_chrome;
+    if (app.ui.panels.dock && app.ui.panels.dock_expanded) || tabbed_in || !rail_visible(&app.ui.panels) {
         app.ui.panel_peek = None;
         return;
     }

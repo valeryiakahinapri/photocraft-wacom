@@ -677,14 +677,21 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
                 "brushSettings" => &mut p.brush_settings,
                 "brushes" => &mut p.brushes,
                 "dock" => &mut p.dock,
+                "dockExpanded" => &mut p.dock_expanded,
                 _ => return Err(format!("unknown panel in {t}")),
             };
             *slot = !*slot;
             if let Some(g) = crate::dock::Group::from_key(&t["window.toggle.".len()..]).filter(|g| g.shown(&app.ui.panels)) {
                 crate::dock::reveal(app, g);
             }
-            // The rail's floating peek is a hidden-dock affordance; the dock coming back ends it.
-            if t == "window.toggle.dock" && app.ui.panels.dock {
+            // The rail's floating peek is a hidden-column affordance; the column coming back
+            // ends it. The dock returning while folded keeps it (the peek is still the only
+            // view of that panel), and the fold opening ends it — whichever way the dock's
+            // visibility itself moved.
+            if t == "window.toggle.dock" && app.ui.panels.dock && app.ui.panels.dock_expanded {
+                app.ui.panel_peek = None;
+            }
+            if t == "window.toggle.dockExpanded" && app.ui.panels.dock_expanded {
                 app.ui.panel_peek = None;
             }
             Ok(Value::Null)
@@ -886,6 +893,7 @@ fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
         "window.toggle.navigator" => p.navigator,
         "window.toggle.toolbar" => p.toolbar,
         "window.toggle.dock" => p.dock,
+        "window.toggle.dockExpanded" => p.dock_expanded,
         "window.togglePanels" => p.toolbar || p.options_bar || p.dock,
         "window.toggle.options" => p.options_bar,
         "window.toggle.brushSettings" => p.brush_settings,

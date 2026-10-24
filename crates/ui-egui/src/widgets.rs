@@ -206,7 +206,8 @@ fn pro_panel(
     // the tabs, registered after it, keep their clicks.
     let (strip, _) = ui.allocate_exact_size(vec2(width, 26.0), Sense::hover());
     let strip_resp = ui.interact(strip, ui.id().with((id, "strip")), Sense::click_and_drag());
-    let rounding = if collapsed { CornerRadius::same(3) } else { CornerRadius { nw: 3, ne: 3, sw: 0, se: 0 } };
+    let radius = t.radius_sm.round() as u8;
+    let rounding = if collapsed { CornerRadius::same(radius) } else { CornerRadius { nw: radius, ne: radius, sw: 0, se: 0 } };
     ui.painter().rect_filled(strip, rounding, t.tab_strip);
     // Panel menu (hamburger); the tabs stay left of it, eliding or overflowing (#151).
     let menu = Rect::from_center_size(pos2(strip.right() - 14.0, strip.center().y), vec2(20.0, 18.0));
@@ -219,7 +220,7 @@ fn pro_panel(
     }
     // Body.
     if !collapsed {
-        egui::Frame::NONE.fill(t.card).corner_radius(CornerRadius { nw: 0, ne: 0, sw: 3, se: 3 }).inner_margin(body_margin(true)).show(ui, |ui| {
+        egui::Frame::NONE.fill(t.card).corner_radius(CornerRadius { nw: 0, ne: 0, sw: radius, se: radius }).inner_margin(body_margin(true)).show(ui, |ui| {
             ui.set_width(width - 16.0);
             body(ui, *selected);
         });

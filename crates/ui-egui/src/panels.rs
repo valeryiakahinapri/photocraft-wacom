@@ -12,8 +12,7 @@ use crate::theme::{self, Tokens};
 use crate::{PhotocraftApp, icons, widgets};
 
 pub(crate) fn chrome_panel_radius(t: &Tokens) -> CornerRadius {
-    let radius = if t.pro { 10.0 } else { t.radius_lg };
-    CornerRadius::same(radius.round().clamp(0.0, 255.0) as u8)
+    CornerRadius::same(if t.bevel { 0 } else { t.radius_sm.min(5.0).round() as u8 })
 }
 
 #[cfg(test)]
@@ -24,9 +23,9 @@ mod chrome_surface_tests {
 
     #[test]
     fn pro_chrome_uses_moderate_rounding_without_changing_classic() {
-        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Pro)), CornerRadius::same(10));
+        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Pro)), CornerRadius::same(4));
         assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Classic)), CornerRadius::same(0));
-        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Studio)), CornerRadius::same(12));
+        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Studio)), CornerRadius::same(5));
     }
 }
 
@@ -115,11 +114,12 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let sections = visible_sections(&app.session.prefs().toolbar.hidden);
     // Two columns when the header chevron asks for them; a column that doesn't fit scrolls.
     let double = app.ui.panels.toolbar_double;
-    let w = if double { w1 + bx + 2.0 } else { w1 };
+    let target_width = if double { w1 + bx + 2.0 } else { w1 };
+    let w = ui.ctx().animate_value_with_time(egui::Id::new("toolbar-width"), target_width, 0.22);
     crate::direction::start_panel("toolbar")
         .resizable(false)
-        .exact_size(w)
-        .frame(egui::Frame::NONE.fill(t.chrome).corner_radius(chrome_panel_radius(&t)).inner_margin(egui::Margin::symmetric(m, 8)))
+        .exact_size(w + 8.0)
+        .frame(egui::Frame::NONE.fill(t.canvas).corner_radius(chrome_panel_radius(&t)).inner_margin(egui::Margin::symmetric(m, 8)))
         .show(ui, |ui| {
             // Toolbar width is a user preference, not a Pro-only feature.
             // Keep the same hit target in every theme (including RTL layouts).
@@ -1809,42 +1809,47 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 // ----------------------------------------------------------------------------- dock
 
 pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    // The dock column can be hidden on its own (`window.toggle.dock`); the rail beside it stays
-    // while `panels.rail` allows and Tab hasn't hidden the chrome with the dock (menus.rs), so
-    // hidden panels keep a way back.
-    // Even legacy destinations must discard gestures captured by an earlier workspace.
-    let customized = if app.ui.panels.dock { crate::panel_docking::show(app, ui) } else { app.ui.docking.is_some() };
+    // The dock column can be hidden on its own (`window.toggle.dock`, ⇧Tab), and its content
+    // folds away without hiding either (`window.toggle.dockExpanded`, the rail's top toggle);
+    // the rail beside it stays while `panels.rail` allows and Tab hasn't hidden the chrome with
+    // the dock (menus.rs), so hidden panels keep a way back. The fold is a persisted preference:
+    // a Tab round-trip restores visibility without ever touching it.
     let t = Tokens::get(ui.ctx());
     let p = app.ui.panels.clone();
     // In Full Screen Mode, Tab shows the dock over the black canvas even when it was hidden
-    // (#6760): the tabbed-in view brings the column back without touching its flag.
+    // (#6760): the tabbed-in view brings the column back without touching its flags.
     let tabbed_in = app.ui.view.hides_chrome() && app.ui.panels.full_screen_chrome;
+    // The column shows when visible AND unfolded, or when the #6760 tabbed-in chrome asks.
+    let column_shown = (p.dock && p.dock_expanded) || tabbed_in;
+    // Even legacy destinations must discard gestures captured by an earlier workspace.
+    let customized = if column_shown { crate::panel_docking::show(app, ui) } else { app.ui.docking.is_some() };
     // The column slides open and closed around its flags (`Panel::show_collapsible` lays the
     // content out at full width, clips it to the animated slice, and hands gesture collapses
     // back through `expanded`): a toggle flip retargets the slide, and while it slides the
     // column keeps drawing, so the canvas widens as the panel narrows. A fully closed panel
     // draws nothing at all.
-    let mut expanded = p.dock || tabbed_in;
+    let mut expanded = column_shown;
     if !customized {
         if t.pro {
             dock_panels(app, ui, &mut expanded, &p, &t);
         }
         if crate::panel_rail::rail_visible(&p) {
-            crate::panel_rail::rail(app, ui, &p, customized);
+            crate::panel_rail::rail(app, ui, &p, customized, column_shown);
         }
         if !t.pro {
             dock_panels(app, ui, &mut expanded, &p, &t);
         }
     } else if crate::panel_rail::rail_visible(&p) {
-        crate::panel_rail::rail(app, ui, &p, customized);
+        crate::panel_rail::rail(app, ui, &p, customized, column_shown);
     }
     // egui wrote a gesture collapse (a drag past the column's minimum) back through
     // `expanded`: sync the app state through the same commands the rail and menus use —
     // UI-level ids, so they dispatch through menus::invoke (app.run only reaches the
-    // engine, which catalogs but does not execute them) — so whichever way the column
-    // came to show, its own flag or the #6760 tabbed-in chrome, the right one flips.
-    if !expanded && (p.dock || tabbed_in) {
-        let id = if p.dock { "window.toggle.dock" } else { "window.togglePanels" };
+    // engine, which catalogs but does not execute them). The #6760 tabbed-in chrome is
+    // transient: its gesture hides the chrome rather than the user's fold; otherwise the
+    // fold flips, never the ⇧Tab visibility.
+    if !expanded && column_shown {
+        let id = if tabbed_in { "window.togglePanels" } else { "window.toggle.dockExpanded" };
         if let Err(error) = crate::menus::invoke(app, ui.ctx(), id, json!({})) {
             app.ui.status = error;
         }
@@ -1905,14 +1910,12 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, expanded: &mut bool, 
     if let Some(w) = ui.ctx().data_mut(|d| d.remove_temp::<f32>(dock_width_id())) {
         panel = panel.exact_size(w);
     }
-    panel.frame(egui::Frame::NONE.fill(t.dock).corner_radius(chrome_panel_radius(t)).inner_margin(egui::Margin::same(margin))).show_collapsible(
-        ui,
-        expanded,
-        |ui| {
+    panel
+        .frame(egui::Frame::NONE.fill(if t.bevel { t.dock } else { t.canvas }).corner_radius(chrome_panel_radius(t)).inner_margin(egui::Margin::same(margin)))
+        .show_collapsible(ui, expanded, |ui| {
             // Groups keep their heights whatever they show (#88): see `dock`.
             crate::dock::show(app, ui, &shown, dock_body);
-        },
-    );
+        });
 }
 
 /// One dock group's tab content; `dock` bounds it and scrolls it when it's taller.
@@ -6567,7 +6570,7 @@ mod toolbar_tests {
             crate::theme::ThemeKind::BreezeDark,
         ] {
             let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
-            let mut h = egui_kittest::Harness::builder().with_size(vec2(800.0, 1400.0)).build_ui_state(
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(800.0, 1400.0)).with_step_dt(1.0 / 60.0).build_ui_state(
                 |ui, app: &mut PhotocraftApp| {
                     if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
                         toolbar(app, ui);
@@ -6584,12 +6587,12 @@ mod toolbar_tests {
             assert!(!h.state().ui.panels.toolbar_double, "{theme:?}");
 
             h.get_by_label("Toolbar").click();
-            h.run_steps(2);
+            h.run_steps(16);
             assert!(h.state().ui.panels.toolbar_double, "{theme:?}");
             assert!(left(&h) > single + 20.0, "{theme:?}: the toolbar did not widen: {single} -> {}", left(&h));
 
             h.get_by_label("Toolbar").click();
-            h.run_steps(2);
+            h.run_steps(16);
             assert!(!h.state().ui.panels.toolbar_double, "{theme:?}");
             assert_eq!(left(&h), single, "{theme:?}");
         }

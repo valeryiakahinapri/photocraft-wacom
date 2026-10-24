@@ -3436,6 +3436,8 @@ cameraRaw	Roughness	Chropowatość
 	Camera Raw ({name})	Camera Raw ({name})
 	Show/Hide All Panels	Pokaż/ukryj wszystkie panele
 	Show/Hide Panels	Pokaż/ukryj panele
+	Collapse Panel Dock	Zwiń dock
+	Expand Panel Dock	Rozwiń dock
 	Hide Dock	Ukryj dock
 	Show Dock	Pokaż dock
 	Could not open	Nie można otworzyć

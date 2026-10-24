@@ -71,35 +71,70 @@ fn shoot(h: &mut Harness<'static, PhotocraftApp>, name: &str) {
     }
 }
 
-/// The toggle on top of the rail hides and shows the dock column itself, and the icon list is
-/// the same constant rail in both states (the owner's mockup grammar — no popover, no labels).
+/// The toggle on top of the rail folds and unfolds the dock column's content without touching
+/// its ⇧Tab visibility, and the icon list is the same constant rail in all states (the owner's
+/// mockup grammar — no popover, no labels).
 #[test]
-fn the_rail_toggle_hides_and_shows_the_dock_column() {
+fn the_rail_toggle_folds_and_unfolds_the_dock_column() {
     let mut h = harness(app(), vec2(1200.0, 800.0), ThemeKind::Studio);
     shoot(&mut h, "icons");
-    assert!(h.state().ui.panels.dock);
+    assert!(h.state().ui.panels.dock && h.state().ui.panels.dock_expanded);
     assert!(h.state().ui.panels.color && h.state().ui.panels.properties && h.state().ui.panels.layers);
     assert!(!h.state().ui.panels.navigator && !h.state().ui.panels.history && !h.state().ui.panels.brushes && !h.state().ui.panels.character);
     // The expanded rail shows all seven groups.
     for g in Group::ALL {
         assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, g.label()).is_some(), "no rail icon for {g:?}");
     }
-    // One press on the toggle hides the column directly.
-    h.get_by_label("Show/Hide Panels").click();
+    // One press on the toggle folds the content; the dock stays visible to ⇧Tab.
+    h.get_by_label("Collapse Panel Dock").click();
     h.run_steps(3);
-    assert!(!h.state().ui.panels.dock, "the toggle hides the dock column");
-    shoot(&mut h, "collapsed");
-    // The collapsed rail is the same icon list — every group stays clickable, shown or not.
+    assert!(!h.state().ui.panels.dock_expanded, "the toggle folds the dock column");
+    assert!(h.state().ui.panels.dock, "the fold leaves the ⇧Tab visibility alone");
+    shoot(&mut h, "folded");
+    // The folded rail is the same icon list — every group stays clickable, shown or not.
     for g in Group::ALL {
-        assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, g.label()).is_some(), "the collapsed rail lost the {g:?} icon");
+        assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, g.label()).is_some(), "the folded rail lost the {g:?} icon");
     }
-    // And back: the column returns, the icons never moved.
-    h.get_by_label("Show/Hide Panels").click();
+    // A ⇧Tab hide still works on top of the fold, and a second ⇧Tab brings the column back
+    // still folded — the fold survives the round-trip.
+    ui_run(&mut h, "window.toggle.dock", json!({}));
     h.run_steps(3);
+    assert!(!h.state().ui.panels.dock);
+    ui_run(&mut h, "window.toggle.dock", json!({}));
+    h.run_steps(3);
+    assert!(h.state().ui.panels.dock && !h.state().ui.panels.dock_expanded, "the dock returns folded");
+    // And back: the content unfolds, the icons never moved.
+    h.get_by_label("Expand Panel Dock").click();
+    h.run_steps(3);
+    assert!(h.state().ui.panels.dock_expanded);
+    for g in Group::ALL {
+        assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, g.label()).is_some(), "no rail icon for {g:?} after unfolding");
+    }
+}
+
+/// A folded rail icon opens its group as a floating peek; Escape dismisses it, and unfolding
+/// the column ends it too (the arm clears the peek on expand).
+#[test]
+fn folded_dock_rail_opens_and_dismisses_panel_flyouts() {
+    let mut h = harness(app(), vec2(1200.0, 800.0), ThemeKind::ProMedium);
+    ui_run(&mut h, "window.toggle.dockExpanded", json!({}));
+    h.run_steps(3);
+    assert!(!h.state().ui.panels.dock_expanded);
     assert!(h.state().ui.panels.dock);
-    for g in Group::ALL {
-        assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, g.label()).is_some(), "no rail icon for {g:?} after re-showing");
-    }
+
+    icon_button(&h, Group::Layers).click();
+    h.run_steps(2);
+    assert_eq!(h.state().ui.panel_peek.as_ref().map(|p| p.group), Some(Group::Layers));
+    assert!(h.ctx.memory(|m| m.area_rect(peek_window_id(Group::Layers))).is_some(), "the folded rail's peek window is drawn");
+
+    h.event(egui::Event::Key { key: Key::Escape, physical_key: Some(Key::Escape), pressed: true, repeat: false, modifiers: Modifiers::NONE });
+    h.run_steps(2);
+    assert!(h.state().ui.panel_peek.is_none(), "Escape closes the folded rail's peek");
+
+    h.get_by_label("Expand Panel Dock").click();
+    h.run_steps(3);
+    assert!(h.state().ui.panels.dock_expanded);
+    assert!(h.state().ui.panel_peek.is_none(), "unfolding ends any peek the fold left behind");
 }
 
 /// A collapsed-rail icon opens its group as a floating peek — a hidden group's icon included

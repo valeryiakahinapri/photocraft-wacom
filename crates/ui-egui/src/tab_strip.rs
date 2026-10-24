@@ -221,11 +221,11 @@ pub fn pro_tabs(ui: &mut Ui, id: egui::Id, strip: Rect, menu_left: f32, tabs: &[
         40.0,
         reorderable,
         |i| i == sel && !collapsed,
-        |ui, r, i, _, galley, resp, active| {
+        |ui, r, _i, _, galley, resp, active| {
             if active {
-                ui.painter().rect_filled(r, CornerRadius { nw: if i == 0 { 3 } else { 0 }, ne: 0, sw: 0, se: 0 }, t.card);
+                ui.painter().rect_filled(r, CornerRadius::same(t.radius_sm.round() as u8), t.card);
             } else if resp.hovered() {
-                ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.4));
+                ui.painter().rect_filled(r, CornerRadius::same(t.radius_sm.round() as u8), t.hover.gamma_multiply(0.4));
             }
             let color = if active {
                 t.text
@@ -258,12 +258,12 @@ pub fn pill_tabs(ui: &mut Ui, id: egui::Id, area: Rect, tabs: &[&str], selected:
             // 2 pt between pills, as the old horizontal layout had.
             let r = Rect::from_min_max(r.min, pos2((r.right() - 2.0).max(r.left()), r.bottom()));
             if active {
-                crate::widgets::surface(ui, r, t.hover, true);
+                crate::widgets::surface(ui, r, t.card, true);
                 if !t.bevel {
-                    ui.painter().rect_stroke(r, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
+                    ui.painter().rect_stroke(r, CornerRadius::same(t.radius_sm.round() as u8), Stroke::new(1.0, t.card_border), StrokeKind::Inside);
                 }
             } else if resp.hovered() {
-                ui.painter().rect_filled(r, t.radius_sm, t.hover.gamma_multiply(0.6));
+                ui.painter().rect_filled(r, CornerRadius::same(t.radius_sm.round() as u8), t.hover.gamma_multiply(0.6));
             }
             let color = if active { t.text } else { t.text_dim };
             ui.painter().with_clip_rect(r.intersect(ui.clip_rect())).galley_with_override_text_color(r.center() - galley.size() / 2.0, galley, color);

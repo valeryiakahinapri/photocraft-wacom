@@ -399,8 +399,8 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
         return false;
     }
     let layout = layout.clone();
-    let reveal = app.ui.docking_reveal.take();
     let t = crate::theme::Tokens::get(ui.ctx());
+    let reveal = app.ui.docking_reveal.take();
     let locked = app.session.prefs().workspace_locked;
     let collapsed = collapsed_members(app, &layout);
     let requested_width = ui.ctx().data_mut(|data| data.remove_temp::<f32>(crate::panels::dock_width_id()));
@@ -410,10 +410,10 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
         let mut style = craft_ui::docking::DockStyle::from_ui(ui);
         style.tab_height = if t.pro { 28.0 } else { 40.0 };
         style.min_pane = 0.0;
-        style.background = t.card;
+        style.background = t.canvas;
         // Studio themes leave the strip transparent over the dock's card; a floating group has no
         // card behind it, so the canvas showed through its titles (#4509).
-        style.tab_background = if t.tab_strip.a() == 0 { t.card } else { t.tab_strip };
+        style.tab_background = if t.tab_strip.a() == 0 { t.canvas } else { t.tab_strip };
         style.active_background = t.card;
         style.text = t.text;
         style.inactive_text = t.text_dim;
@@ -453,7 +453,7 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
             .default_size(if t.pro { 290.0 } else { 300.0 })
             .size_range(crate::panels::dock_width_range(ui.ctx().content_rect().width()))
             .resizable(!locked)
-            .frame(egui::Frame::NONE.fill(t.card));
+            .frame(egui::Frame::NONE.fill(t.canvas).corner_radius(crate::panels::chrome_panel_radius(&t)).inner_margin(egui::Margin::same(4)));
         if let Some(width) = requested_width {
             panel = panel.exact_size(width);
         }

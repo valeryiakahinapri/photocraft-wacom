@@ -2378,6 +2378,8 @@ cameraRaw	Color	カラー
 	Scroll to zoom	スクロールしてズーム
 	Show/Hide All Panels	すべてのパネルを表示/非表示
 	Show/Hide Panels	パネルを表示/非表示
+	Collapse Panel Dock	ドックを折りたたむ
+	Expand Panel Dock	ドックを展開する
 	Hide Dock	ドックを非表示
 	Show Dock	ドックを表示
 	Could not open	開けませんでした
