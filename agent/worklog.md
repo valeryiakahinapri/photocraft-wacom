@@ -228,3 +228,49 @@ Gates at session close: wasm build GREEN (70-80s loop), cargo check --target was
 (wasm-release, -p photocraft-web --features heif) GREEN locally, fmt clean, design REV3,
 worklog/PLAN/HANDOFF/SKILL/kb all pushed (agent-meta d8b59a6b tip), feature branch
 1513ebb6 (7 commits), /home/sync refreshed.
+
+## Session 2 — 2026-10-24 (Z.ai sandbox; the cloud-library build for GenEditor-ui)
+
+User directive: "the wasm build process is fully ready so you can now also
+change the file menu / flow inside rust (as well as any js-bridge surface
+you need to expand or change) to fully support cloud library."
+
+### What shipped
+
+- Branch `web-cloud-library` (@ 07bd165, pushed): `crates/ui-egui/src/cloud.rs`
+  (CloudLibrary/CloudEntry + save_all_to_library + the save-name laws),
+  `Services.cloud` seam, menus.rs (dynamic File ▸ Open from Library ▸ +
+  Save to Library entries, dispatch, invoke_from_host/host_command_allowed),
+  native_menu state_hash cloud fingerprint, and
+  `apps/photocraft-web/src/host_bridge.rs` — the postMessage host bridge
+  compiled into the wasm (open→inbox, library.list, save-request queue,
+  saved-from-write with real Blobs, docs/dirty app-truth, esc, library.open,
+  save-all-done, prefs deep-merge pre-seed; inert standalone). web.rs wiring
+  confined to ~7 documented sites (the live agent's WIP merge is expected).
+- The full site built + packaged (`photocraft-web-0.15.1.zip`, 15 MB gzipped
+  parts) and vendored into GenEditor-ui `public/photocraft/` (the host app's
+  review surface). E2E A–F PASS there (0 console errors / 0 4xx) incl. the
+  in-app File-menu cloud browser opening a third MDI tab.
+
+### Environment findings (the load-bearing ones for the next session)
+
+- **The codespace is contended**: the live copilot agent periodically
+  SIGTERMs rustc/cargo processes it doesn't own (its own test cycles starve
+  under my builds → its harness sweeps). Two full package.sh runs died this
+  way (SIGTERM on engine+ui-egui rustc; the cgroup showed oom_kill 0 —
+  deliberate kills, not OOM).
+- **The reliable second plane is LOCAL**: pulled
+  `/workspaces/.photocraft-toolchain-backup/rust-toolchain.tar.zst` via
+  `cs get` (~4-8 min), stream-extracted with python-zstandard, and built the
+  whole site in the Z-sandbox with `CARGO_BUILD_JOBS=1` (the 3.9G OOM law:
+  two parallel opt-z rustc = SIGKILL; serialized + codegen-units=16 fits)
+  and the documented `CARGO_PROFILE_WASM_RELEASE_LTO=false` +
+  `CARGO_PROFILE_WASM_RELEASE_CODEGEN_UNITS=16` overrides. The
+  double-fork python daemonize keeps the build alive across tool-call
+  boundaries (plain nohup/& dies).
+- **trunk 0.21.14 vs NO_COLOR=1** (the Z-sandbox's default env): clap parses
+  it as `--no-color 1` → exit 2 "invalid value". `export NO_COLOR=false`.
+- **Codespace creation 429s persistently** on this account (even after
+  backoff) — don't plan on a fresh box.
+- The cloud.rs native unit tests never completed (both planes got killed /
+  disk-tight) — the known gap, first item in the webhost HANDOFF.
