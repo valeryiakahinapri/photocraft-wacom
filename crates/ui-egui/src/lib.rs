@@ -57,6 +57,7 @@ pub mod channel_options_ui;
 pub mod channel_view;
 pub mod channels_panel;
 pub mod chrome_ui;
+pub mod cloud;
 pub mod cjk_fonts;
 pub mod clip_line_ui;
 pub mod color_picker_ui;
@@ -609,6 +610,11 @@ pub struct Services {
     /// drag-and-drop, routed by [`PhotocraftApp::dropped_on_canvas`]): placed as layers like a
     /// desktop canvas drop (Place Embedded, each in Free Transform).
     pub place_inbox: Option<Inbox>,
+    /// EMBED-DESIGN-CLOUD B1 — the embedding host's cloud library, installed by the web
+    /// shell's host bridge while a same-origin parent page embeds the editor. While one is
+    /// connected the File menu grows the cloud-library entries (Open from Library ▸,
+    /// Save to Library) and the shell routes saves to the host; `None` standalone.
+    pub cloud: Option<cloud::CloudLibrary>,
     /// OS clipboard images: copies go out, screenshots and images from other apps come in.
     pub clipboard_set_image: Option<ClipboardSetFn>,
     pub clipboard_get_image: Option<ClipboardGetFn>,
