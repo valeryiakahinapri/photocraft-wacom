@@ -196,6 +196,7 @@ fn label_chip(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens, g: Group, 
         let anchor = ui.ctx().pointer_interact_pos().or_else(|| ui.ctx().pointer_latest_pos());
         app.ui.panel_peek = Some(crate::state::PanelPeek { group: g, tab, anchor, first: true });
     }
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), peeked, tl!(g.label())));
     resp.on_hover_text(tl!(g.label())).on_hover_cursor(egui::CursorIcon::PointingHand);
 }
 
@@ -304,3 +305,7 @@ pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         app.ui.panel_peek = None;
     }
 }
+
+#[cfg(test)]
+#[path = "panel_rail_tests.rs"]
+mod tests;
