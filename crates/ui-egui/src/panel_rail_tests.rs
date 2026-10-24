@@ -116,7 +116,7 @@ fn a_rail_label_opens_a_floating_peek_that_follows_focus() {
     h.run_steps(3);
     assert_eq!(h.state().ui.panel_peek.as_ref().map(|p| p.group), Some(Group::History));
     shoot(&h, "peek-history");
-    h.event(egui::Event::Key { key: Key::Escape, pressed: true, modifiers: Modifiers::NONE });
+    h.event(egui::Event::Key { key: Key::Escape, physical_key: Some(Key::Escape), pressed: true, repeat: false, modifiers: Modifiers::NONE });
     h.run_steps(2);
     assert!(h.state().ui.panel_peek.is_none(), "Escape closes the peek");
     // The close box ends it too, and the dock coming back ends it always.
