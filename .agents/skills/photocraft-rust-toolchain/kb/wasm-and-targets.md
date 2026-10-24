@@ -66,3 +66,29 @@ Use the Rust minimum documented by `docs/development.md` and the stable channel 
   `nohup ... &` dies at the boundary; the python double-fork daemonize
   (fork → setsid → fork → exec) survives. Codespaces do NOT have this
   problem (remote machine).
+
+## Session-4 additions (2026-10-24, the PHASE-B identity build)
+
+- **The warm-cache hardlink trick (the fast lane)**: when the codespace's
+  live agent has just finished its own `package.sh` build, its target dir
+  (e.g. `/tmp/<target>`, ~5.8G) holds the EXACT dependency graph compiled.
+  Clone it with `cp -al` (hardlinks, near-free, same filesystem) into your
+  worktree's target path and run the build there: the full official site
+  build then lands in ~3 minutes instead of ~50. Coordinate via git
+  (read-only on the agent's own tree); check `pgrep -af 'cargo|rustc'`
+  first. This is the build answer when the sandbox has no local toolchain.
+- **The LTO/codegen overrides are RETIRED upstream**: canonical main
+  (`7d6f9df9`, "optimize web build") now ships `lto=false,
+  codegen-units=16` in the `wasm-release` profile itself. Do not export
+  the env overrides on a current tree (harmless but noise); the resulting
+  site (~13MB largest part) IS the canonical size — the "wasm size pass"
+  is moot unless upstream flips the profile back.
+- **The E2E serving plane must not be `next dev`**: the platform
+  next-server balloons to ~3.1GB RSS under a browser E2E pass and gets
+  OOM-killed on a 3.9G sandbox. The baked storybook surface is static —
+  serve it with a minimal static server (python http.server with the
+  right MIME + rewrites, daemonized via dfork) on a spare port for the
+  driver; keep `next` for interactive review only.
+- **`cs get` chokes on big binaries**: for the 610MB toolchain tarball
+  use the kit's armed ControlMaster (`ssh ... 'cat <path>'` streaming),
+  not the kit's own transfer verb.
