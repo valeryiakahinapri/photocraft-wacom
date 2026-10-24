@@ -240,3 +240,67 @@ Round 2 (implementation review) verdict: fix-then-ship. Landed in f8d0faae:
   CODESPACE in an isolated worktree + CARGO_TARGET_DIR=/tmp/test-target; close the headless
   browser before local rustc (OOM kill otherwise); the cache tarball now lives at
   /tmp/my-project/photocraft-cache/pc.tar.zst (PolarFS, recycle-durable).
+
+## REV 4 — modern-canvas-studio mockup refinement (2026-10-24 session 3, DRAFT FOR REVIEW)
+
+The owner shipped a mockup (github.com/valeryiakahinapri/modern-canvas-studio —
+`src/components/ps/Shell.tsx`, a Lovable/React Photoshop mock) that IS the vision for the
+right-panel behavior. Its grammar (extracted from the code, not guesswork):
+
+- The right island = permanent 44px icon rail + a 316px panel column. The rail NEVER changes
+  shape: same three group icons (color/adjust/layers) in both states.
+- The rail's TOP button is a DIRECT overall toggle (`setRightOpen(!rightOpen)`): the column
+  animates `transition-[width,opacity] duration-300 ease-out` to `w-0 opacity-0` while the
+  rail stays. No popover anywhere.
+- Expanded (`rightOpen`): rail icon click = per-group toggle (`collapsed[key]` flips — the
+  card collapses to its header). Icon `active = !collapsed[key]`.
+- Collapsed (`!rightOpen`): rail icon click = FLYOUT — a 300px floating panel anchored
+  beside the rail at the icon's own y-offset (`right-full`, `top: {color:46,…}`), header =
+  name + X, `max-h-[70vh]` scroll, fade+slide-in-right 150ms, ONE flyout at a time
+  (same-icon re-click closes), expand-all closes any flyout. Icon `active = flyout === key`.
+
+### Deltas vs our REV3 implementation
+
+R1. **Collapsed rail = the same constant icon list, not rotated labels.** The 90° label
+    chips (D2) are replaced by the ICON_ORDER icons — always all of them, like the mockup's
+    constant rail. `on` = peeked group only (`active = flyout === key`); shown-state does not
+    style the collapsed rail (the column is gone; there is nothing to reflect). Clicking a
+    hidden group's icon still opens its peek (the rail is the Window-menu-style affordance).
+    The label_chip fn, its RTL rotation, its a11y widget_info and the ScrollArea die; icons
+    already carry hover tooltips + rail_button styling. Rotated labels were OUR reading of
+    "vertical strip" — the owner's mock supersedes. (The rotated-text mechanism — TextShape
+    angle — remains proven for future use; nothing else in-tree needs it.)
+R2. **The top toggle becomes direct.** Click = `window.toggle.dock` (the same command the
+    popover's row ran; #129-safe, both dock modes, both themes). The D1 popover
+    (`visibility_menu`), its popup-id publication, and the peek's popup-rect focus-loss
+    exception are REMOVED — per-group visibility is reachable by clicking the rail icons
+    themselves (expanded) and in the Window menu. `set_group_shown` loses its only
+    production caller — REMOVED with its test (its knowledge lives in dock::rail_click /
+    panel_docking::rail_click which the icons use; the Window menu keeps its own ids).
+    Keep the "Hide Dock"/"Show Dock" catalog rows (unused keys are harmless; the i18n gate
+    is a coverage report) — noted as accepted debt, reusable by a future menu row.
+R3. **Dock column animation (the one NEW mechanism).** Target width = the resizable
+    column's current width (NOT hardcoded 316): on `p.dock`/`tabbed_in` flip, animate
+    0 ↔ current width over ~300ms with an ease-out mapping, content laid out at full width
+    inside a clip (the mockup's `overflow-hidden` reveal: the column wipes open from the
+    canvas side). Mechanics: `ctx.animate_value_with_time(id, target, 0.3)` for the glide
+    + a cubic-out remap of the 0..1 progress; during the glide the panel is presented
+    `exact_size(animated)` (resize handle suppressed for the 300ms — imperceptible); below
+    ~1px the panel is not drawn at all (zero cost while collapsed, #1313 intact). Opacity
+    fade only if `Ui::set_opacity` exists in egui 0.36 and behaves for panel fills — else
+    width alone (the reveal reads as the dominant effect). GOTCHAs to verify in review:
+    (a) resizable SidePanel width state must not fight exact_size — read the live width,
+    animate, restore; (b) the canvas reflows per frame for 300ms — acceptable repaint cost,
+    but the animation must TERMINATE (no per-frame wake once at target); (c) kittests must
+    still find panels: tests wait or assert post-animation state.
+R4. **Kept from REV3 (mockup is silent = our spec wins):** focus-loss close on the peek
+    (outside-press + Escape + close + dock-return; the mockup simply doesn't model outside
+    clicks — Photoshop's collapsed flyouts close on click-away, and the owner's original
+    spec demanded it), per-group window ids, live tab pills, #6760 tabbed_in, RTL (via
+    direction::end_panel — icon rail is RTL-shape-free), the `window.panel.peek` command,
+    panel_body dedupe deferral.
+R5. **Tests:** rewrite panel_rail_tests for the icon rail: toggle click flips panels.dock
+    (no popover); collapsed rail shows group ICONS (a11y labels still query by group name
+    — rail_button titles); icon click opens the peek (window with the group's label
+    exists); re-click/Escape/outside-press closes; expanded icon click still routes
+    rail_click (collapse-to-strip, #129). Drop the popover + set_group_shown rows.
