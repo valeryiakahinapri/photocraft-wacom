@@ -43,3 +43,26 @@ This validates the package layout and size checks on those development artifacts
 ## Toolchain version and editor support
 
 Use the Rust minimum documented by `docs/development.md` and the stable channel used in CI. Install `rustfmt` and `clippy` for formatting and linting, plus `rust-analyzer` and `rust-src` for VS Code analysis. Trunk is versioned in CI; use that version for comparable web-build results. Add only the Rust standard-library targets required by the requested platforms.
+
+## Session-2 additions (2026-10-24, the cloud-library build)
+
+- **The 2-core/4GB local recipe that WORKS** (the Z-sandbox): pull the
+  codespace's `/workspaces/.photocraft-toolchain-backup/rust-toolchain.tar.zst`
+  with `cs get` (~4-8 min), stream-extract with python `zstandard`
+  (tarfile `r|` mode) into `$HOME`, then build with
+  `CARGO_BUILD_JOBS=1 CARGO_PROFILE_WASM_RELEASE_LTO=false
+  CARGO_PROFILE_WASM_RELEASE_CODEGEN_UNITS=16`. Two parallel opt-z rustc
+  on 3.9G RAM = SIGKILL (OOM); serialized fits. The whole
+  `packaging/web/package.sh` site lands in ~50 min locally.
+- **trunk 0.21.14 + `NO_COLOR=1`** (a default env in some sandboxes):
+  clap reads the env as `--no-color 1` → exit 2 "invalid value '1'".
+  `export NO_COLOR=false` before any trunk invocation.
+- **A contended codespace kills long builds**: a second agent working in
+  `/workspaces/photocraft-wacom` SIGTERMs rustc processes it doesn't own
+  (resource sweeps when its own cargo starves). Detached (`setsid nohup`)
+  builds still die. Check `pgrep -af 'cargo|rustc'` for foreign activity
+  before committing to a long build there; the local plane is the fallback.
+- **Background builds across tool-call boundaries** (Z-sandboxes): plain
+  `nohup ... &` dies at the boundary; the python double-fork daemonize
+  (fork → setsid → fork → exec) survives. Codespaces do NOT have this
+  problem (remote machine).
