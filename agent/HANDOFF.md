@@ -1,52 +1,59 @@
-# HANDOFF — next-session scope (written 2026-10-24, session 1)
+# HANDOFF — next-session scope (written 2026-10-24, session 2)
 
-New sandbox, new session: bootstrap FIRST, then the scope below. Everything durable lives
-on the `agent-meta` branch of `valeryiakahinapri/photocraft-wacom` (github) — including
-this file. `/home/sync` and local disks may be empty/stale; github is the only truth.
+New sandbox, new session: bootstrap FIRST (the recipe is proven — ~5 min to a warm build lane),
+then the scope below. Durable truth = `agent-meta` branch on github + /home/sync copies.
+Feature branch: `feature/right-panel-collapse` (tip b6725404) — 6 commits: WIP snapshot +
+extraction + plumbing + popover + labels + peek + kittests.
 
-## Bootstrap (≈2 min)
+## Bootstrap (≈2 min) + build-lane restore (≈5 min if /home/z was recycled)
 
-0. Tokens (base64-encoded in `agent/secrets.env` on this branch — decode with
-   `echo $VAL | base64 -d`, prepend `ghp_` for github PATs):
-   - WORK_PAT_B64 → work repo (valeryiakahinapri)
-   - KIT_PAT_B64 → zai-codespaces repo (xfnwfpho1)
-   - GLPAT_B64 → gitlab mirror (different account again)
-   (Raw tokens also appear in the chat that spawned this project; NEVER commit them raw —
-   GitHub push protection rejects reconstructable `ghp_`+token patterns.)
 1. `git clone https://<work PAT>@github.com/valeryiakahinapri/photocraft-wacom.git /home/z/photocraft-wacom`
+   (PAT in agent/secrets.env on agent-meta, base64; also kit .env)
 2. `git clone https://<kit PAT>@github.com/xfnwfpho1/zai-codespaces.git /home/z/zai-codespaces`
-3. `cd /home/z/photocraft-wacom && git fetch origin && git worktree add ../agent-meta agent-meta`
-   (or plain `git switch agent-meta` — repo is outside the watchdog path, branches are safe)
-4. `bash /home/z/photocraft-wacom/agent/scripts/zai-bootstrap.sh` — bootstraps the kit
-   (gh+ssh user-space), re-applies the 3rd-account patch (photocraft → valeryiakahinapri),
-   verifies codespace exec. (If the patch is already upstreamed into zai-codespaces kit,
-   the script skips it.)
-5. Sanity: `ZAI_ROOT=/home/z/zai-codespaces CS_ACCOUNT=photocraft bash kit/cs exec 'echo ok'`
+3. `cd /home/z/photocraft-wacom && git fetch && git switch agent-meta && bash agent/scripts/zai-bootstrap.sh`
+4. Codespace: `ZAI_ROOT=/home/z/zai-codespaces CS_ACCOUNT=photocraft bash kit/cs ensure`
+5. If /home/z survived (check `ls /home/z/pc-build/target`): nothing to rebuild. If recycled:
+   the toolchain tarball is on /home/sync/photocraft-agent/toolchain/ (extract with
+   scripts/zstd-extract.py to /home/z, i.e. .cargo/.rustup/.cache) and the CACHE tarball
+   (agent/kb/local-build-fanout.md recipe) must be re-pulled from the codespace — check the
+   live agent's current tree state first (`pgrep -af cargo`); the cache is only compatible
+   with the env overrides in the recipe.
+6. Worktrees: `git worktree add /home/z/pc-edit feature/right-panel-collapse` in the clone.
 
-## Immediate scope for next session
+## Immediate scope
 
-1. **Check live-agent status in the codespace** (user said: read OK, writes careful until
-   they confirm no live agent). `cs exec 'pgrep -af copilot; cd /workspaces/photocraft-wacom && git status -sb'`.
-   If the js-bridge work is committed: review it (kb/browser-js-bridge.md is the spec);
-   if still uncommitted: re-snapshot to `wip/<ts>/` on agent-meta (read-only!) and leave it.
-2. **Codespace disk relief** (only if agent idle & user OK): `rm -rf target/debug`-style
-   prune of 9.8G target/debug (rebuildable) to get /workspaces under 60%.
-3. **Ramp-up deep-dive** (context budget permitting): read `apps/photocraft-web/src/web.rs`
-   fully, `crates/engine` command registry, `docs/control-protocol.md` — the three surfaces
-   a web adoption touches. Extract kb entries into `.agents/skills/photocraft-rust-toolchain/kb/`.
-4. **Ask the user the Phase-2 questions** in PLAN.md (target project shape, fork strategy,
-   codespace ownership timing, machine upgrade) — Phase 2 is blocked on them.
+1. **Test results**: check /home/z/logs/test-native.status (native kittest build was launched
+   in background at session end). If rc=0: PNG fixtures are in /home/z/logs/fixtures —
+   review panel-rail-{icons,popover,labels,peek,peek-history}.png, then run the remaining
+   gates (all local, warm now): `cargo check --target wasm32-unknown-unknown` (L0-L6),
+   clippy, `cargo xtask layers`, i18n report; fix anything; push.
+2. **If tests failed**: the log tail is in /home/z/logs/test-native.log; iterate via
+   `cargo test -p photocraft-ui-egui --locked --offline panel_rail` (incremental now) — NOTE:
+   ui-egui has no `heif` feature. PNG fixtures regenerate with
+   PHOTOCRAFT_PANEL_RAIL_FIXTURES=/home/z/logs/fixtures.
+3. **panel_body dedupe** (deferred commit F): extract the scrolls_itself/ScrollArea wrapper
+   shared by dock.rs show(), panel_docking::body() and the peek window into one
+   panel_rail::panel_body — OWN commit; it FIXES #2726 for customized docks (dock.rs sets
+   fade.strength=0, panel_docking lacks it) — add scroll assertions.
+4. **Codespace housekeeping** (read-only first): rm /tmp/pull/* (658M+ parts from the cache
+   pull) once the transfer is surely not needed again; if the live agent has committed its
+   WIP (git log origin/main), rebase feature/right-panel-collapse onto plain origin/main and
+   re-run the kittests.
+5. **GitLab mirror**: still blocked — the PAT from session 1 is REVOKED; ask the user for a
+   fresh token before wiring the second remote.
 
-## Session-1 experience notes (what to avoid repeating)
+## Session-2 experience notes (what to not re-learn)
 
-- The work repo's `.agents/` + `log/` are gitignored by UPSTREAM rules and exist only in the
-  codespace tree — always mirror them to agent-meta after touching them there.
-- `cs exec` heredoc script mode is the ONLY sane way to run multi-line remote commands;
-  always `<<'EOF'` (quoted) or local bash eats the $vars. ZAI_ROOT must be
-  /home/z/zai-codespaces in every kit invocation (it defaults to /home/z/my-project — wrong).
-- Local clone is at /home/z/photocraft-wacom — NOT /home/z/my-project (watchdog switches
-  my-project to main every ~20s; any branch work there gets reverted).
-- The kit's `cs` defaults to the primary account (xfnwfpho1) — that codespace list is the
-  zai fleet; the photocraft box needs `CS_ACCOUNT=photocraft`.
-- Don't run cargo in the codespace repo while the live agent's build holds the lock
-  (check `pgrep -af 'cargo build'` first); if needed use a worktree + CARGO_TARGET_DIR=/tmp/... .
+- The browser E2E harness LIES: agent-browser mouse events never trigger egui release-clicks
+  (press-gesture menus work; Popup::menu/checkbox items don't); synthetic PointerEvents are
+  ignored (untrusted); accesskit DOM empty; VLM "confirms" whatever the prompt describes —
+  md5/pixel-diff screenshots before believing anything. kittest + PNG fixtures = the truth
+  (kb/web-e2e-tooling.md).
+- `trunk` CLI breaks if NO_COLOR=1 (wants true/false). python http.server subclassing of
+  functools.partial crashes — subclass the handler class directly.
+- MultiEdit on long markdown blocks with arrows/dashes can fail to match invisibly — use a
+  python splice for big doc edits.
+- Never commit the live agent's workspace Cargo.toml (lto=false) — build parity via
+  CARGO_PROFILE_WASM_RELEASE_* env vars (verified identical fingerprints).
+- The bridge (`window.PhotoCraft`, {id, params} / {steps} envelope) drives an INDEPENDENT
+  headless session, NOT the visible UI.

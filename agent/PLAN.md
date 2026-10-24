@@ -24,15 +24,36 @@ Update it as items start/finish. Immediate next-session scope lives in HANDOFF.m
 - [ ] (await user confirmation of agent completion before taking ownership / committing)
 - Snapshot of WIP at 2026-10-24T00:22Z: `wip/2026-10-24T00:22Z/` on agent-meta branch
 
-### Phase 1.5 — local build fan-out (PILOT READY, 2026-10-24)
-Local sandbox proven capable of inherited-cache incremental wasm builds:
+### Phase 1.5 — local build fan-out (DONE + MEASURED, 2026-10-24 session 2)
+Local sandbox RUNS inherited-cache incremental wasm builds (not just proven-capable):
 - [x] Toolchain extracted locally (rustc 1.99.1 == codespace, trunk 0.21.14, wasm target)
 - [x] Storage lanes measured (overlay=build, ossfs/polarfs=transport/backup only)
-- [x] kb/local-build-fanout.md written (profile facts, LTO=false env requirement, recipe)
-- [ ] PILOT: pull source+wasm-target tarball from codespace → noop-build test →
-      one-crate incremental timing (blocked on: live agent idle + WIP committed)
-- Decision: release/fat-LTO + wasm-opt + packaging stay on codespace; local does
-  cargo-check + LTO=false incrementals + patch authoring.
+- [x] kb/local-build-fanout.md: full recipe + ALL measurements (pull 5min, sed 0.5s,
+      ~600 registry deps survive the transfer, true noop 0.3s, ui-egui edit to full wasm 70s,
+      trunk web bundle 11.3s; one-time refingerprint of workspace crates 8m30s)
+- [x] PILOT: RAN — pulled the live agent's own mid-flight tree+cache (its uncommitted
+      lto=false Cargo.toml came in the tar; verified env overrides hash identically, so the
+      feature branch builds warm WITHOUT committing that hack)
+- Working setup: /home/z/pc-edit (git worktree, feature branch) then rsync -rc (content
+      checksum, mtime-preserving) into /home/z/pc-build (mtime-pristine build space, no git).
+- Decision (unchanged): release/fat-LTO + wasm-opt + packaging stay on codespace; local does
+      cargo-check + LTO=false incrementals + kittest + patch authoring.
+
+### Phase 1.6 — panel rail feature (IMPLEMENTED, under test — 2026-10-24 session 2)
+The right-panel collapse UX the user asked for, used as the fan-out stress test:
+- [x] Design + sub-agent review round (REV2: agent/design/2026-10-24-panel-rail-collapse.md)
+- [x] feature/right-panel-collapse (6 commits, tip b6725404): rail-top panel-right toggle with
+      popover (Hide/Show Dock + a checkbox row per group via set_group_shown), Character in
+      the rail icons; collapsed dock shows 90-degree rotated label chips of shown groups
+      (RTL mirrored); clicking a label opens a floating peek window (tab pills + shared dock
+      body) closed by Escape / close box / click outside / dock return / dock::apply;
+      window.panel.peek command; P0 fixes (panel_docking no longer re-asserts
+      panels.dock=true; Character/Brushes rows routed safely); Hide Dock/Show Dock
+      localized in all 21 catalogs.
+- [ ] kittest result (native build ran in background; status /home/z/logs/test-native.status)
+- [ ] Remaining gates: cargo check wasm (L0-L6), clippy, xtask layers, i18n report
+- [ ] Deferred: panel_body dedupe (own commit + scroll assertions)
+- [ ] After the live agent commits its WIP: rebase feature commits onto plain origin/main
 
 ### Phase 2 — the actual web project integration (NOT STARTED — needs user input)
 - [ ] Define the host project: framework, hosting, embedding model (iframe? same-page canvas?
@@ -50,7 +71,9 @@ Local sandbox proven capable of inherited-cache incremental wasm builds:
 
 ## Standing decisions (do not relitigate without new facts)
 
-- Codespace = build plane; local Z sandbox = control plane; no local Rust toolchain.
+- Codespace = build plane; local Z sandbox = control plane; REVISED 2026-10-24: local
+  runs the SAME toolchain (extracted from the backup) + inherited wasm cache as a second
+  build lane; codespace keeps release/heavy work.
 - All agent docs durable on `agent-meta` branch of the work repo (+ /home/sync copies);
   main stays clean for upstream tracking.
 - Kit access: `ZAI_ROOT=/home/z/zai-codespaces CS_ACCOUNT=photocraft bash kit/cs <cmd>`.
