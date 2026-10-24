@@ -327,3 +327,53 @@ Stage Summary:
 - Durable docs: kb/review-hub-and-pins.md + kb/pin-webgpu-report.md; HANDOFF rewritten;
   PLAN phase 1.7 appended; scripts gnu-extract-cache.py, fix-toolchain-mtimes.py,
   restore-local-lane.py (fixed), trunk-bundle.py (color-env fix), noop-build.py.
+
+## Session 4 — 2026-10-24 (Z.ai sandbox; the broken-stories fix + PHASE-B identity)
+
+### The owner's complaint, root-caused
+
+- The baked photocraft stories CRASHED at render ("multiple screens, nothing pops up"):
+  the annotakit overlay's orphan path does `t.target.selector.fragment ?? t.target.bbox` —
+  if `selector` itself is undefined, `.fragment` THROWS before `??` can fall back (the
+  bbox fallback is dead code). All issue-synced threads carry `target:{kind}` with no
+  anchor → whole-story render death. Fix at the source (sync script) + a bake-time
+  sanitizer backstop (`scripts/sanitize-thread-targets.py`, wired into the bake): the
+  ONLY safe shape is `target.selector = {fragment:{...}}`; 54 store rows repaired
+  (annotakit branch @ 1f15c67).
+- Second defect on the same surface: the stories were dev-demo compositions (stacked
+  full screens). Redone as REAL app surfaces: TriggerSurfaces = the live
+  ImageWorkspace (ih5 carries a real same-origin poster; the workspace Edit verb rides
+  the DEFAULT merged feed — history items filtered to the editor's model, Flux 2 Pro),
+  ClosedNoOp = the real default app. The corrupt re-typed PNG fixture replaced with a
+  PIL-verified deterministic one. Browser-gated on the baked surface: every story
+  loads clean, every launch path (tile ⋯ Edit → modal → wasm boots) proven live.
+- Lesson: the E2E had run BEFORE the final "fixed-threads" re-bake — the last untested
+  step regressed the surface. Bake-order law: E2E AFTER the final bake, always.
+
+### PHASE-B doc↔asset identity (save-back-in-place)
+
+- Design `EMBED-DESIGN-PHASEB.md` v1→v2 on webhost main (adversarial R1: 2 BLOCKING —
+  stale map after save-rename, stale pending leaking into export writes; both discharged
+  via re-key-on-write + consume-on-write armed on SYNC branches only, ext-gate: layered
+  identity formats park, flat formats correctly mint).
+- Rust (`web-cloud-library-rebase`, rebased onto main 7d6f9df9 — the engine bridge and
+  our host_bridge coexist): identity echo in host_bridge.rs (open captures pending,
+  write consumes + re-keys + echoes, docs-prune on close), CloudLibrary identity/pending
+  + arm_save_for_path, menus.rs file.save arms. Native cloud tests 6/6 PASS on the
+  codespace (the cfg(test) Mutex-collect infer trap: wasm check never sees test code —
+  build the native test target too).
+- Host (GenEditor @ e925ec2): protocol assetId echo, EditorAsset.id, handleSaved UPDATE
+  branch (kind transition + update-miss fallback), library launches carry a.id.
+  1813/1813 + tsc 0.
+- Build: rode the codespace's warm cache (the live agent's just-finished 5.8G target
+  dir) via `cp -al` hardlink clone → full official site in ~3 min. 13.2MB largest part
+  (canonical no-LTO profile is upstream now). E2E A–G FULL PASS on the baked surface
+  (D/E assert update truth, G = identity laws; 0 console errors, 0 4xx). The serving
+  plane for E2E = a dfork'd static server (next dev OOMs at 3.1G).
+
+### Where things are
+
+- GenEditor `feature/photocraft-embed` @ e925ec2 · webhost main @ afed653 (PLAN/HANDOFF
+  = session-8 start) · wacom `web-cloud-library-rebase` @ b3b2e5b · annotakit @ 1f15c67.
+- This session's distillations: kb/wasm-and-targets.md (session-4 recipes) +
+  kb/browser-js-bridge.md (two-bridge coexistence law).
