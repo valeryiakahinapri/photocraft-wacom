@@ -141,3 +141,123 @@ status/toolbar islands + gradient tool button) → panel_docking.rs (dock island
 default width 316) → panel_rail.rs (absorb island, hairline border, peek retune) →
 canvas.rs + tab_strip.rs (doc island + active-tab flip) → widgets.rs (CTA radius,
 field/pill retunes) → i18n rows (theme label) → tests.
+
+## REV6-amended (post-audit, 2026-10-24 session 4 — SUPERSEDES the mechanics above)
+
+Audit agent-9443e1b1 verdicts folded in. D1/D9 CONFIRM; D2/D3/D4/D5/D7/D8/D10 AMENDED:
+
+**A1 (D3 mechanics).** egui 0.36 `Frame::paint` fills content+inner_margin only
+(outer_margin paints nothing; root Ui has no bg). Scheme: strip frames =
+`Frame::NONE.fill(t.page).inner_margin(M)` (page-colored gap bands, exactly like
+today's full-bleed strips), and each body wraps content in an inner
+`Frame::NONE.fill(t.card).corner_radius(5).shadow(...).stroke(hairline 1px Inside)`
+= the island. `exact_size` grows by margin sums (title 38→50, options 42→50,
+status 30→38; toolbar `w+8`→`w+8+margins`). 4/8 arithmetic confirmed. Panel claim
+order confirmed correct (status before sides, central last). Desktop caption
+buttons need the content rect (web unaffected).
+
+**A2 (D5 architecture — REPLACES the wrapper).** No wrapper panel. Keep the
+E2E-proven structure: column stays THE resizable `show_collapsible` panel; rail
+stays its own panel. Changes: (i) swap claim order — column.show() FIRST (far
+right), rail.show() SECOND (left of column) = mockup's rail-left/column-right;
+(ii) rail strip frame = fill(t.page)+inner margins (t4,b4,l4,r0) and its body
+paints the WHOLE island at the background layer at body start: rect =
+[rail_content.left .. screen_right−8] × [content top..bottom] — exact THIS-frame
+geometry, zero lag (rail strip abuts the column's animated edge); fill card,
+radius 5, shadow, hairline; (iii) rail content paints after the island in the
+same body (background layer) ✓; (iv) column body content wraps in
+`ui.with_layer_id(LayerId::new(Order::PanelResizeLine, id), …)` so it floats above
+the island painted later during rail.show(); CentralPanel's page fill can't touch
+the island (disjoint rects); (v) column strip frame fill = t.page (its r8 band);
+(vi) egui's own resize separator (painted at Order::PanelResizeLine at the
+column's left edge = the rail/column boundary) is adopted as the mockup hairline
+— tune its color if styleable, accept if not. Legacy path (panels::dock_panels,
+the DEFAULT) gets the same treatment as panel_docking's; DockStyle.background /
+tab_background fallbacks → t.card under islands (panel_docking.rs:411-416).
+Peek stays "left of rail" = left of island (code unchanged semantically); drop
+the Area-offset entrance animation (audit: REV5-P2 class).
+
+**A3 (D2 completion).** ModernCanvas sets EVERY field explicitly: base spread
+`..Tokens::for_kind(Studio)` with overrides INCLUDING
+`primary_bg #5E9CF6 / primary_text #FCFCFC` (else the Home CTA renders white),
+`accent_border = #5E9CF6 @ ~50%` (else violet rings), `chrome = dock = #161719`,
+`field #1F2123 / field_border #2B2C2E / hover #1F2123 / pressed #2A2B2F /
+separator #222324 / card_border #222324 / row_selected #212223 /
+accent_soft rgba(94,156,246,38) / tab_strip TRANSPARENT / histogram_bg #060607 /
+canvas_dot #101011`. `ThemeKind::is_dark()` gains ModernCanvas (matches! list —
+silent-light-theme hazard). `Tokens::get` fallback → ModernCanvas.
+
+**A4 (D8 precision).** Live slot = `interface.darkTheme` (appearance_mode
+system, prefs_ui.rs:89-116), legacy `interface.theme` rides along. Migration in
+`load_prefs_json` beside the appearanceMode precedent (engine prefs.rs:1864-1886):
+patch raw JSON `if !interface.modernMigrated && darkTheme=="proMedium" →
+"modernCanvas"` (+ theme), set modernMigrated=true; new Interface bool field
+(serde(default)). Unknown-variant risk: none (read_lenient drops unknown keys to
+defaults per-key). Exhaustive-match sites auto-break (good): set_pref theme
+routing (prefs.rs:1962-2019 needs ModernCanvas arm), ThemeKind
+label/id/from_name/is_dark/ALL (array 14→15), prefs_ui selected_theme dark match
+(106) + DARK_THEME_OPTIONS row (163) or the theme is unpickable.
+
+**A5 (D4).** Active doc tab ALREADY fills t.canvas in both pro and studio paths
+(canvas.rs:2625/2965) — the owner's flip ships free with D2; ADD: primary dot
+before the name (Shell.tsx:295), tab radius 5, and cover the three bypass paths
+(start_screen 3175, empty 2497-2502, arranged 2525-2541) inside the island;
+dots pitch 22→18 (canvas.rs:3117).
+
+**A6 (D7).** CTA pill fix is DEAD (pro-only branch — drop from spec). Real sweep:
+pill_tabs active → `t.pressed` fill + hairline stroke, radius 3 (tab_strip.rs:261);
+Segmented container look belongs to card_ex header (widgets.rs:140-148);
+`pill_tab` same; layer-thumb radius literal 6.0→3 (panels.rs:3658); card_ex
+per-card border → divide-y hairlines under islands (cheap, pulled INTO scope);
+scrollbars best-effort.
+
+**A7 (D6).** Violet wash guard `!t.bevel && !t.pro && t.dark()` FIRES for
+ModernCanvas → add `&& !t.islands` (panels.rs:136). Gradient active tool +
+3px accent bar replaces IconButton selection in the slot loop (panels.rs:194-198).
+
+**A8 (missed items adopted).** M2 brand "Ps"-style gradient tile = stated
+deviation this round (keep monochrome mark). M3 rulers: verify row in E2E.
+M4 separator: adopted as hairline (A2-v). M5 fallback → ModernCanvas. M6 dialogs:
+one screenshot in the matrix. M7 floating task bar inside workspace: explicit
+future-round item. Menu popups: `style_spectrum_popup_menu` is pro-only —
+verify non-pro menu hover reads on surface popover, else gate tweak.
+
+**A9 (checklist order, final).** theme.rs → engine prefs.rs (enum/defaults/
+migration/set_pref arm) → state.rs + prefs_ui (default, options row) → lib.rs
+shell (A1 frames + backdrop→page + title/status sizing) → panels.rs (options
+island; toolbar island + wash guard + gradient tool; right_dock swap + legacy
+docking defaults 316 + dock_panels width pass-through) → panel_rail.rs (A2
+island paint + transparent rail + 44px + peek retune) → panel_docking.rs (style
+backgrounds + 316 + frame page) → canvas.rs (island + workspace + dot + tab
+radius + bypass paths + pitch 18) → tab_strip.rs/widgets.rs (A6) → i18n label
+rows (~25 catalogs) → tests (ALL sweep compile, migration unit test, token hex
+test, theme list row) → build → bake → browser E2E matrix (incl. migration seed
++ dialogs + rulers) → push.
+
+Highest-risk item per audit: right-side geometry — prototype FIRST (A2), verify
+with a screenshot before the rest of the polish.
+
+## REV6-final (round 2 audit resolution — the build spec)
+
+A2 layer scheme REJECTED (N1 `Order::PanelResizeLine` absent in egui 0.36; N2 no
+`with_layer_id`; N3 raw layers unhit-testable → dead dock widgets; N4 rail clip;
+N5 egui separator buried by later panels). Adopted: **segment scheme** —
+column body paints its island segment (right corners rounded 5, fill card, hairline,
+shadow, over its own l4 band via ui.painter()); rail body paints its segment (LEFT
+corners rounded 5) + 1px hairline at its right edge + icons; identical fills make
+the seam invisible; everything stays in the background layer; show_collapsible /
+persistence / resize untouched. `.show_separator_line(false)` on both column
+panels (N5: egui's line is buried + adds 1px outer margin); rail right margin
+animates 0↔8 via the SAME animation value egui uses (`Id::new("dock").with(
+"animation")`, animate_bool_responsive) so the folded state rounds all four
+corners with no pop (N6). Peek-open guard while fold animation runs (P2).
+
+Judgment calls (author, final): title/options exact_size = content+12/+8 targeting
+mockup 40/44 content → 52/52 strips; status 40. Doc-tab radius = `t.radius` under
+islands (5), radius_sm otherwise. Migration = dark slot only (`darkTheme` ==
+proMedium → modernCanvas, legacy `theme` rides, modernMigrated flag); Auto/light
+users keep proLight until they pick (documented — ModernCanvas is a dark theme;
+no light counterpart this round). A3 adds `icon #96989D`. A6 adds dock.rs
+(item_spacing 543, card_ex stroke off under islands, divide-y hairline).
+A1 dock width: 316 content = 328 outer (l4+r8), DOCK_MIN_WIDTH likewise +12.
+Dots pitch: BOTH literals (canvas.rs 3117 + 3141). Rail-rect test asserts revisit.
