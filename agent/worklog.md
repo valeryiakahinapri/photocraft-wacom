@@ -190,3 +190,21 @@ cache), this branch.
 - Deferred to next session: panel_body dedupe (own commit, scroll behavior); cargo check
   wasm gate + clippy once tests settle; codespace /tmp/pull cleanup; GitLab mirror still
   blocked (revoked token); Phase-2 questions to the user still open (see PLAN).
+
+### Session 2, final stretch (03:00-03:20)
+
+- Native kittest run locally FILLED THE DISK (target/debug 3.5G+ and growing, /home/z 100%,
+  rustc rc=101 mid-engine) — the kb's own "native tests belong to the codespace" rule,
+  violated and re-learned: the ui-egui native test graph needs 6-10G target/debug. Recovered:
+  rm target/debug, parts deleted, the 658M cache tarball moved to
+  /tmp/my-project/photocraft-cache/ (PolarFS, recycle-durable). /home/z back to 53%.
+- Local rustc got OOM-KILLED (SIGKILL) once — the leftover headless chromium was holding RAM;
+  `agent-browser close` freed 1.4G and the next build passed. Close the browser before rustc.
+- Code-review round (2nd sub-agent) verdict fix-then-ship: P1 peek lifecycle guard + 10 P2s
+  (per-group window ids, live tab, popover rect in focus rule, group-complete close, #6760
+  tabbed_in, theme font, RTL fallback, separator, shell_commands registration, test order +
+  Tab regression row). ALL LANDED in f8d0faae (wasm build green, 1m18s, pushed).
+- kittests re-launched on the CODESPACE: isolated worktree /tmp/panel-rail-test (detached at
+  origin/feature/right-panel-collapse) + CARGO_TARGET_DIR=/tmp/test-target — the live agent's
+  tree and caches untouched; fixtures to /tmp/fixtures; daemon logs at
+  /home/z/logs/test-codespace.{log,status}.
