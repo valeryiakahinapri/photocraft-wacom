@@ -212,3 +212,31 @@ Verdict was "needs changes" (3 P0s). All incorporated below; supersedes conflict
   points, window.panel.peek command → 4) D1 popover → 5) D2 labels + RTL → 6) D3 peek + focus
   loss → 7) panel_body dedupe (own commit) → 8) tests D7+P0/P1 regressions, gates, wasm E2E,
   final review.
+
+## REV 3 — code-review round outcomes (2026-10-24 session 2, INCORPORATED)
+
+Round 2 (implementation review) verdict: fix-then-ship. Landed in f8d0faae:
+
+- P1 fixed: `peek_window` now owns its lifecycle — `panels.dock || !rail_visible` clears the
+  peek whatever path forgot (Tab chrome, ui.set, workspace restore, panels.rail off, a peek
+  command while the dock shows). The rule lives in `panel_rail::rail_visible`.
+- P2s landed: per-group window ids (resized size no longer leaks across groups); live tab read
+  each frame; the visibility popover's rect counts as inside the focus-loss rule; customized
+  hide closes every layout member of the group (members can span tab groups); #6760 full-screen
+  Tab keeps drawing the dock column (`show_column = p.dock || tabbed_in`); chips use
+  `theme::medium(11.5)`; RTL fallback rect mirrored; separator in both rail modes;
+  `window.panel.peek` registered in `engine/src/shell_commands.rs`; test order fixed (explicit
+  show BEFORE the no-params activate, so the close assert is not vacuous) + Tab regression row.
+- Deliberate deviations from REV2 text (code wins, doc amended here):
+  - D1 toggle visual: `selected = p.dock` — accent while the dock SHOWS (a standard on/off
+    toggle; the labels-mode rail itself advertises the hidden state). REV2's "accent when
+    hidden" line is superseded.
+  - D3 outside-press rule now includes the popover rect (as REV2 originally specified).
+  - Label elide: dropped in favour of the ScrollArea alone (the chip taller than the whole
+    rail is pathological; revisit only with real locale data). RTL kittest row + the
+    panel_body dedupe stay deferred (see HANDOFF).
+- Environment lessons recorded elsewhere: native kittest graphs DO NOT fit on the 9.9G local
+  disk (target/debug needed 6-10G, filled /home/z at 100% mid-engine) — tests run on the
+  CODESPACE in an isolated worktree + CARGO_TARGET_DIR=/tmp/test-target; close the headless
+  browser before local rustc (OOM kill otherwise); the cache tarball now lives at
+  /tmp/my-project/photocraft-cache/pc.tar.zst (PolarFS, recycle-durable).
