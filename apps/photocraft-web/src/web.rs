@@ -55,6 +55,9 @@ pub fn start() {
         // the app-creation closure (install) and kept here for the boot
         // outcome posts. Standalone → fully inert.
         let host = crate::host_bridge::HostBridge::new();
+        // The boot-outcome posts live in THIS scope after the runner's
+        // future resolves — the closure below moves `host`, so keep a clone.
+        let host_outer = host.clone();
         let Some(document) = web_sys::window().and_then(|w| w.document()) else {
             log::debug!("no browser document; skipping visual app startup");
             return;
@@ -98,7 +101,6 @@ pub fn start() {
                     // `ready` before the first frame (the host only speaks
                     // after it, so no pre-boot buffering exists).
                     host.install(cc.egui_ctx.clone(), inbox.clone());
-                    let host_clone = host.clone();
                     let (session, warnings) = crate::preset_bridge::session(presets.clone());
                     preset_warnings.extend(warnings);
                     let drag = listen_drag(&pen_target);
@@ -119,7 +121,7 @@ pub fn start() {
                     }
                     let unsaved = Arc::new(AtomicBool::new(false));
                     guard_unload(unsaved.clone());
-                    Ok(Box::new(WebShell { app, inbox, place_inbox, unsaved, served, database, presets, host: host_clone }))
+                    Ok(Box::new(WebShell { app, inbox, place_inbox, unsaved, served, database, presets, host }))
                 }),
             )
             .await;
@@ -129,11 +131,11 @@ pub fn start() {
                     el.remove();
                     // EMBED-DESIGN-CLOUD B0 — the boot outcome (the host's own
                     // watchdog covers the pre-wasm failures Rust can't see).
-                    host.post_booted();
+                    host_outer.post_booted();
                 }
                 Err(e) => {
                     el.set_inner_html(&format!("<p>PhotoCraft failed to start: {e:?}</p><p>A browser with WebGPU or WebGL2 is required.</p>"));
-                    host.post_boot_failed(&format!("{e:?}"));
+                    host_outer.post_boot_failed(&format!("{e:?}"));
                 }
             }
         }
