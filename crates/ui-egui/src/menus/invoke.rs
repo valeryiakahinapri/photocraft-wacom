@@ -617,6 +617,13 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             Ok(json!({"document": to}))
         }
         t if t.starts_with("window.toggle.") => {
+            // The panel dock's content area folds away while the icon rail stays (the fork's
+            // rounded-dock interaction); toggling it back also dismisses any open flyout.
+            if t == "window.toggle.dockExpanded" {
+                app.ui.panels.dock_expanded = !app.ui.panels.dock_expanded;
+                ctx.data_mut(|data| data.remove::<crate::dock::Group>(egui::Id::new("right-dock-flyout")));
+                return Ok(json!({"expanded": app.ui.panels.dock_expanded}));
+            }
             // A shown but collapsed dock group is expanded rather than hidden (#129).
             if let Some(g) = crate::dock::Group::from_key(&t["window.toggle.".len()..]).filter(|g| g.shown(&app.ui.panels) && app.ui.dock.is_collapsed(*g)) {
                 crate::dock::reveal(app, g);

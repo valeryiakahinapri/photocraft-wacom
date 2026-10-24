@@ -283,7 +283,7 @@ fn assert_palette(ctx: &egui::Context, kind: ThemeKind) {
     let t = Tokens::get(ctx);
     assert_eq!(t.kind, kind);
     for style in [ctx.global_style(), ctx.style_of(egui::Theme::Light), ctx.style_of(egui::Theme::Dark)] {
-        assert_eq!(style.visuals.panel_fill, t.chrome);
+        assert_eq!(style.visuals.panel_fill, t.canvas);
         assert_eq!(style.visuals.window_fill, t.card);
         assert_eq!(style.visuals.override_text_color, Some(t.text));
         assert_eq!(style.visuals.widgets.inactive.bg_fill, t.field);

@@ -86,11 +86,12 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let sections = visible_sections(&app.session.prefs().toolbar.hidden);
     // Two columns when the header chevron asks for them; a column that doesn't fit scrolls.
     let double = app.ui.panels.toolbar_double;
-    let w = if double { w1 + bx + 2.0 } else { w1 };
+    let target_width = if double { w1 + bx + 2.0 } else { w1 };
+    let w = ui.ctx().animate_value_with_time(egui::Id::new("toolbar-width"), target_width, 0.22);
     crate::direction::start_panel("toolbar")
         .resizable(false)
-        .exact_size(w)
-        .frame(egui::Frame::NONE.fill(t.chrome).corner_radius(super::chrome_panel_radius(&t)).inner_margin(egui::Margin::symmetric(m, 8)))
+        .exact_size(w + 8.0)
+        .frame(egui::Frame::NONE.fill(t.canvas).corner_radius(super::chrome_panel_radius(&t)).inner_margin(egui::Margin::symmetric(m, 8)))
         .show(ui, |ui| {
             // Toolbar width is a user preference, not a Pro-only feature.
             // Keep the same hit target in every theme (including RTL layouts).

@@ -19,7 +19,7 @@
 
 Both Breeze themes are our own values close to Plasma's (not a copy of its colour schemes) and put text readability first: every text colour holds 4.5:1 on every surface and on hovered, pressed and selected states (`theme.rs` tests), so their secondary text, accent and status colours are darker (Light) or lighter (Dark) than Breeze's own, and the primary button is a deeper blue with white text.
 
-The toolbox, right dock and its icon rail use an inset rounded surface rather than a full-height square strip. Pro uses a moderate 10 px outer radius; Studio-layout themes use their `radius_lg` token, and Classic remains square. The gutter is included in the side-panel allocation so the toolbar buttons and rail keep their existing usable width.
+The toolbar, right dock and icon rail use compact rounded shells with a 4–5 px radius (from `radius_sm`, capped at 5); Classic remains square. Their frame fill and the exposed gutter use the same `t.canvas` shade, so the rounded corners reveal a deliberate graphite background rather than a mismatched dark strip. In Pro, the toolbar folds between 48 px and 80 px; the right dock folds away while its 44 px rail remains. Rail icons open anchored floating panels while folded. The dock fold control is `window.toggle.dockExpanded`; Shift+Tab (`window.toggle.dock`) still hides or restores the entire dock. Document tabs use the canvas shade for the active tab and the card shade for inactive tabs.
 
 Edit → Preferences → Interface shows an Appearance Mode selector (Sync with system, Dark, Light) above separate light and dark theme cards with PhotoCraft editor previews and radio choices. Auto is opt-in and follows the operating system while the app is running. On Linux it reads the desktop portal once and then listens for its `SettingChanged` signal (no polling, and the UI repaints only when the value changes); `gsettings` runs at most once at start-up, by absolute path, when the portal gives no answer. A missing system appearance falls back to Dark. New installs keep Photoshop's default: Dark mode with Pro Medium (Pro Light is the saved light theme). Existing saved single-theme preferences migrate to a fixed Dark or Light mode with their chosen theme. The header appearance button cycles Auto → Light → Dark; its icon shows a monitor, moon or sun for the selected mode. Window → Theme and `ui.set {"theme":"classic"}` select a theme and fix the mode to its light or dark family.
 
@@ -37,7 +37,7 @@ The toolbar's foreground and background colour chips follow the `Tokens::round_c
 - **Photoshop layout grammar (Pro):**
   - Essentials dock order: Color | Swatches, then Properties | Adjustments, then Layers | Channels | Paths (Layers fills the remaining height).
   - Options-bar labels end with a colon ("Size:").
-  - Document tabs read "name @ 12.5% (RGB/8)".
+  - Document tabs read "name @ 12.5% (RGB/8)"; the active tab uses the canvas shade and inactive tabs use the card shade.
   - Toolbar tool groups carry a corner triangle.
 - **Verify every visual change** with `ui.screenshot`, at several window sizes and in every theme.
 

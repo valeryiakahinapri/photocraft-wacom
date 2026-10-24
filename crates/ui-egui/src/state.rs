@@ -44,6 +44,9 @@ pub struct Panels {
     /// The right-hand panel dock. ⇧Tab hides and shows it, as in Photoshop (#1313).
     #[serde(default = "yes")]
     pub dock: bool,
+    /// The panel dock's content area can fold away while leaving its icon rail available.
+    #[serde(default = "yes")]
+    pub dock_expanded: bool,
     /// What Tab hid (toolbar, options bar, dock), so a second Tab brings back just those.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hidden_by_tab: Option<[bool; 3]>,
@@ -81,6 +84,7 @@ impl Default for Panels {
             character: false,
             toolbar_double: false,
             dock: true,
+            dock_expanded: true,
             hidden_by_tab: None,
             full_screen_chrome: false,
             rail: true,

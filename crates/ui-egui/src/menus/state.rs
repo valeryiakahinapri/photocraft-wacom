@@ -193,6 +193,7 @@ pub(super) fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
         "window.toggle.navigator" => p.navigator,
         "window.toggle.toolbar" => p.toolbar,
         "window.toggle.dock" => p.dock,
+        "window.toggle.dockExpanded" => p.dock_expanded,
         "window.togglePanels" => p.toolbar || p.options_bar || p.dock,
         "window.toggle.options" => p.options_bar,
         "window.toggle.brushSettings" => p.brush_settings,
