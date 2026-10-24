@@ -99,10 +99,9 @@ pub fn start() {
                         photocraft_ui_egui::notices::post(&mut app, i18n::t("Some brush presets could not be loaded"), preset_warnings, true, None);
                     }
                     listen_pen(&pen_target, app.stylus.feed.clone());
-                    // No forced theme: UiState's default (ModernCanvas) holds until the first
-                    // tick applies the loaded preference — a fresh visitor gets the mockup
-                    // look, a migrated save flips proMedium once, explicit picks are kept.
-                    app.apply_theme(&cc.egui_ctx, ThemeKind::ModernCanvas);
+                    // No forced theme: setup_context already applied ModernCanvas (the
+                    // UiState default), and the first tick's prefs load — a fresh visitor's
+                    // defaults, or a migrated saved file — drives the theme from there.
                     if let Some(rs) = cc.wgpu_render_state.clone()
                         && !force_cpu
                     {
