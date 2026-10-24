@@ -32,7 +32,7 @@
 //! standalone use of the same origin).
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -74,6 +74,17 @@ struct Inner {
     last_docs: RefCell<Vec<String>>,
     /// The last posted dirty flag (change detection).
     last_dirty: RefCell<bool>,
+    /// PHASE-B identity: doc name → the library asset it was opened from
+    /// (first-wins on name collisions — a second same-named asset never
+    /// steals another's identity; pruned to the live docs list on every
+    /// docs change; re-keyed to the SAVE name when an identity write
+    /// lands, because the engine renames the doc to the save name).
+    identity: Arc<Mutex<HashMap<String, String>>>,
+    /// PHASE-B pending: the asset id armed for the NEXT synchronous write
+    /// (consume-on-write; armed ONLY on save paths that write inline —
+    /// save-all per-doc and `file.save` with a known path — so exports,
+    /// dialogs and Save-As can never observe an armed slot).
+    pending: Arc<Mutex<Option<String>>>,
 }
 
 impl Inner {
@@ -145,18 +156,23 @@ fn handle_message(inner: &Rc<Inner>, data: &wasm_bindgen::JsValue) {
     match str_at(data, "type").as_str() {
         "open" => {
             let Some(files) = array_at(data, "files") else { return };
-            let mut to_open: Vec<(String, web_sys::Blob)> = Vec::new();
+            let mut to_open: Vec<(String, web_sys::Blob, Option<String>)> = Vec::new();
             for i in 0..files.length() {
                 let item = files.get(i);
                 let name = str_at(&item, "name");
                 let blob = js_sys::Reflect::get(&item, &wasm_bindgen::JsValue::from_str("blob"))
                     .ok()
                     .and_then(|v| v.dyn_into::<web_sys::Blob>().ok());
+                // PHASE-B: the host attaches the originating asset id when
+                // this open IS an asset open (modal launch, popout picker,
+                // the in-app library browser's answer).
+                let asset_id = str_at(&item, "assetId");
+                let asset_id = if asset_id.is_empty() { None } else { Some(asset_id) };
                 if name.is_empty() {
                     continue;
                 }
                 match blob {
-                    Some(blob) => to_open.push((name, blob)),
+                    Some(blob) => to_open.push((name, blob, asset_id)),
                     None => log::error!("photocraft host bridge: open file \"{name}\" carries no blob"),
                 }
             }
@@ -164,12 +180,21 @@ fn handle_message(inner: &Rc<Inner>, data: &wasm_bindgen::JsValue) {
                 return;
             }
             // One after another, in the order sent — the drop path's law.
+            // The identity insert happens only AFTER the bytes read (a
+            // failed read leaves no phantom identity).
             let inner = inner.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                for (name, blob) in to_open {
+                for (name, blob, asset_id) in to_open {
                     match wasm_bindgen_futures::JsFuture::from(blob.array_buffer()).await {
                         Ok(buffer) => {
                             inner.push_inbox(&name, js_sys::Uint8Array::new(&buffer).to_vec());
+                            if let Some(id) = asset_id {
+                                let mut identity = inner.identity.lock().unwrap_or_else(|e| e.into_inner());
+                                // First-wins: a second same-named asset never
+                                // steals a live identity (the map prunes with
+                                // the docs list anyway).
+                                identity.entry(name).or_insert(id);
+                            }
                             inner.request_repaint();
                         }
                         Err(e) => log::error!("photocraft host bridge: couldn't read \"{name}\": {e:?}"),
@@ -210,8 +235,12 @@ fn handle_message(inner: &Rc<Inner>, data: &wasm_bindgen::JsValue) {
 
 /// `File {name, size, type}` + a real Blob — the parse-guard-exact `saved`
 /// message (the host's `blob instanceof Blob` check accepts it after the
-/// structured clone).
-fn post_saved(path: &str, bytes: &[u8]) -> Result<(), String> {
+/// structured clone). PHASE-B: when the write consumed an armed asset id
+/// it is echoed (`assetId`) and the identity map RE-KEYS to this save name
+/// — the engine renames the doc to exactly this name (`saved_to`), so the
+/// in-session repeat saves keep hitting the identity instead of going
+/// stale after the first `photo.png → photo.psd` save.
+fn post_saved(path: &str, bytes: &[u8], identity: &Arc<Mutex<HashMap<String, String>>>, asset_id: Option<&str>) -> Result<(), String> {
     let js = |e: wasm_bindgen::JsValue| format!("{e:?}");
     let name = std::path::Path::new(path)
         .file_name()
@@ -223,6 +252,11 @@ fn post_saved(path: &str, bytes: &[u8]) -> Result<(), String> {
     };
     set(&message, "channel", wasm_bindgen::JsValue::from_str(CHANNEL))?;
     set(&message, "type", wasm_bindgen::JsValue::from_str("saved"))?;
+    if let Some(id) = asset_id {
+        set(&message, "assetId", wasm_bindgen::JsValue::from_str(id))?;
+        let mut map = identity.lock().unwrap_or_else(|e| e.into_inner());
+        map.insert(name.clone(), id.to_string());
+    }
     let file = js_sys::Object::new();
     set(&file, "name", wasm_bindgen::JsValue::from_str(&name))?;
     set(&file, "size", wasm_bindgen::JsValue::from_f64(bytes.len() as f64))?;
@@ -313,6 +347,8 @@ impl HostBridge {
                 commands: RefCell::default(),
                 last_docs: RefCell::default(),
                 last_dirty: RefCell::default(),
+                identity: Arc::default(),
+                pending: Arc::default(),
             }),
         }
     }
@@ -328,15 +364,24 @@ impl HostBridge {
         if !self.inner.connected {
             return None;
         }
-        Some(CloudLibrary { entries: self.inner.entries.clone(), open: Arc::new(post_library_open) })
+        Some(CloudLibrary {
+            entries: self.inner.entries.clone(),
+            open: Arc::new(post_library_open),
+            identity: self.inner.identity.clone(),
+            pending: self.inner.pending.clone(),
+        })
     }
 
     /// The write service while connected: the bytes go to the host as the
     /// parse-guard-exact `saved` message (NO download — the library IS the
-    /// save target; confirmed, so the document settles saved).
+    /// save target; confirmed, so the document settles saved). PHASE-B:
+    /// CONSUMES the armed asset id (one write = one identity echo — a
+    /// later export can never pick up a stale slot) and re-keys the
+    /// identity map to the save name.
     pub fn write(&self, path: &str, bytes: &[u8]) -> Result<(), String> {
         if self.inner.connected {
-            post_saved(path, bytes)
+            let armed = self.inner.pending.lock().unwrap_or_else(|e| e.into_inner()).take();
+            post_saved(path, bytes, &self.inner.identity, armed.as_deref())
         } else {
             crate::web::download(path, bytes)
         }
@@ -451,6 +496,15 @@ impl HostBridge {
             }
         };
         if docs_changed {
+            // PHASE-B: prune the identity map to the live docs (closed docs
+            // release their identity; the save-name re-key keeps the entry
+            // aligned with saved_to's rename). A freshly-inserted identity
+            // whose doc hasn't landed yet can fall here — benign: that open
+            // degrades to a mint instead of an update.
+            {
+                let mut identity = self.inner.identity.lock().unwrap_or_else(|e| e.into_inner());
+                identity.retain(|name, _| names.contains(name));
+            }
             self.inner.post_json(&serde_json::json!({ "channel": CHANNEL, "type": "docs", "names": names }));
         }
         let dirty = app.has_unsaved_work();
