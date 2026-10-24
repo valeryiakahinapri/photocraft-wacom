@@ -22,15 +22,23 @@ extraction + plumbing + popover + labels + peek + kittests.
 
 ## Immediate scope
 
-1. **Test results**: check /home/z/logs/test-native.status (native kittest build was launched
-   in background at session end). If rc=0: PNG fixtures are in /home/z/logs/fixtures —
-   review panel-rail-{icons,popover,labels,peek,peek-history}.png, then run the remaining
-   gates (all local, warm now): `cargo check --target wasm32-unknown-unknown` (L0-L6),
-   clippy, `cargo xtask layers`, i18n report; fix anything; push.
-2. **If tests failed**: the log tail is in /home/z/logs/test-native.log; iterate via
-   `cargo test -p photocraft-ui-egui --locked --offline panel_rail` (incremental now) — NOTE:
-   ui-egui has no `heif` feature. PNG fixtures regenerate with
-   PHOTOCRAFT_PANEL_RAIL_FIXTURES=/home/z/logs/fixtures.
+1. **Test results**: the kittests were re-launched on the CODESPACE (the right home for
+   them — a native test graph does NOT fit on the local 9.9G disk, see worklog) in the
+   isolated worktree /tmp/panel-rail-test + CARGO_TARGET_DIR=/tmp/test-target:
+   check /home/z/logs/test-codespace.{status,log} (status OK + `TEST_RC=0` marker = pass).
+   - When done: `ZAI_ROOT=/home/z/zai-codespaces CS_ACCOUNT=photocraft bash kit/cs getdir
+     /tmp/fixtures /home/z/logs/fixtures` for the PNG snapshots (panel-rail-{icons,popover,
+     labels,peek,peek-history}.png), review them, then clean up the codespace:
+     `git worktree remove --force /tmp/panel-rail-test && rm -rf /tmp/test-target /tmp/fixtures`.
+   - If failed: re-run in the same worktree (incremental now): cs exec with
+     `export PATH="/home/codespace/.cargo/bin:$PATH"` FIRST (remote bash is NOT login —
+     cargo is not on PATH; this bit me) and NO `| tail` after cargo (it masks the rc via
+     set -e; that bit me too). Local iteration is cargo BUILD only (fast, cached);
+     `cargo check --target wasm32 --profile wasm-release` runs locally in ~10 min
+     (check-wasm daemon result in /home/z/logs/check-wasm.{status,log}).
+2. **Gates still owed after tests pass**: clippy (locally wasm-target or codespace worktree),
+   `cargo xtask layers` + i18n-coverage (codespace — xtask is native), final review of
+   panel_body dedupe (deferred commit F; see design REV3).
 3. **panel_body dedupe** (deferred commit F): extract the scrolls_itself/ScrollArea wrapper
    shared by dock.rs show(), panel_docking::body() and the peek window into one
    panel_rail::panel_body — OWN commit; it FIXES #2726 for customized docks (dock.rs sets
