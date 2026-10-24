@@ -1,5 +1,5 @@
-//! Panel rail tests: the visibility popover on top of the rail, the collapsed-dock's rotated
-//! labels, and the floating peek they open.
+//! Panel rail tests: the top toggle, the constant icon list in both dock states, and the
+//! floating peek the collapsed-dock icons open.
 
 use egui::{Key, Modifiers, PointerButton, Pos2, vec2};
 use egui_kittest::Harness;
@@ -43,6 +43,12 @@ fn press(h: &mut Harness<'static, PhotocraftApp>, at: Pos2) {
     h.run_steps(2);
 }
 
+/// The rail icon button of `g` (the peek window's title carries the same label as a plain
+/// text widget, so pin the role to the button).
+fn icon_button<'a>(h: &'a Harness<'static, PhotocraftApp>, g: Group) -> egui_kittest::kittest::Query<'a, 'static> {
+    h.query_by_role_and_label(egui::accesskit::Role::Button, g.label()).unwrap_or_else(|| panic!("no rail icon for {g:?}"))
+}
+
 /// Visual fixtures (PNG snapshots) land in `$PHOTOCRAFT_PANEL_RAIL_FIXTURES` when set.
 fn shoot(h: &mut Harness<'static, PhotocraftApp>, name: &str) {
     if let Some(directory) = std::env::var_os("PHOTOCRAFT_PANEL_RAIL_FIXTURES").map(std::path::PathBuf::from) {
@@ -51,8 +57,8 @@ fn shoot(h: &mut Harness<'static, PhotocraftApp>, name: &str) {
     }
 }
 
-/// The popover lists every group, hides and shows the dock column, and the collapsed rail
-/// carries one rotated label per group still shown.
+/// The toggle on top of the rail hides and shows the dock column itself, and the icon list is
+/// the same constant rail in both states (the owner's mockup grammar — no popover, no labels).
 #[test]
 fn the_rail_toggle_hides_and_shows_the_dock_column() {
     let mut h = harness(app(), vec2(1200.0, 800.0), ThemeKind::Studio);
@@ -60,32 +66,21 @@ fn the_rail_toggle_hides_and_shows_the_dock_column() {
     assert!(h.state().ui.panels.dock);
     assert!(h.state().ui.panels.color && h.state().ui.panels.properties && h.state().ui.panels.layers);
     assert!(!h.state().ui.panels.navigator && !h.state().ui.panels.history && !h.state().ui.panels.brushes && !h.state().ui.panels.character);
-    // The icons mode shows all seven groups on the rail.
+    // The expanded rail shows all seven groups.
     for g in Group::ALL {
         assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, g.label()).is_some(), "no rail icon for {g:?}");
     }
-    // The toggle's popover: the dock row plus one checkbox per group.
+    // One press on the toggle hides the column directly.
     h.get_by_label("Show/Hide Panels").click();
-    h.run_steps(2);
-    shoot(&mut h, "popover");
-    for g in Group::ALL {
-        assert!(h.query_by_role_and_label(egui::accesskit::Role::CheckBox, g.label()).is_some(), "no popover row for {g:?}");
-    }
-    h.get_by_label("Hide Dock").click();
     h.run_steps(3);
-    assert!(!h.state().ui.panels.dock, "the row hides the dock column");
-    shoot(&mut h, "labels");
-    // Collapsed: only the shown groups keep a (rotated label) chip; the icons are gone.
-    for g in [Group::Color, Group::Properties, Group::Layers] {
-        assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, g.label()).is_some(), "no label chip for the shown {g:?}");
+    assert!(!h.state().ui.panels.dock, "the toggle hides the dock column");
+    shoot(&mut h, "collapsed");
+    // The collapsed rail is the same icon list — every group stays clickable, shown or not.
+    for g in Group::ALL {
+        assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, g.label()).is_some(), "the collapsed rail lost the {g:?} icon");
     }
-    for g in [Group::Navigator, Group::History, Group::Brushes, Group::Character] {
-        assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, g.label()).is_none(), "hidden {g:?} still has a chip");
-    }
-    // Back the other way: the popover's row reads Show Dock now, and the icons return.
+    // And back: the column returns, the icons never moved.
     h.get_by_label("Show/Hide Panels").click();
-    h.run_steps(2);
-    h.get_by_label("Show Dock").click();
     h.run_steps(3);
     assert!(h.state().ui.panels.dock);
     for g in Group::ALL {
@@ -93,22 +88,39 @@ fn the_rail_toggle_hides_and_shows_the_dock_column() {
     }
 }
 
-/// A rail label opens its group as a floating peek; Escape, the close box, a click outside and
-/// the dock coming back all end it, and `window.panel.peek` drives the same state.
+/// A collapsed-rail icon opens its group as a floating peek — a hidden group's icon included
+/// (the rail is the Window-menu-style affordance); re-clicking the lit icon, Escape, the close
+/// box, a click outside and the dock coming back all end it, and `window.panel.peek` drives
+/// the same state.
 #[test]
-fn a_rail_label_opens_a_floating_peek_that_follows_focus() {
+fn a_rail_icon_opens_a_floating_peek_that_follows_focus() {
     let mut h = harness(app(), vec2(1200.0, 800.0), ThemeKind::Studio);
     h.state_mut().run("window.toggle.dock", json!({})).unwrap();
     h.run_steps(3);
     assert!(!h.state().ui.panels.dock);
-    h.get_by_label("Layers").click();
+    // A hidden group's icon still peeks (Character is off by default).
+    icon_button(&h, Group::Character).click();
+    h.run_steps(3);
+    assert_eq!(h.state().ui.panel_peek.as_ref().map(|p| p.group), Some(Group::Character));
+    assert!(h.ctx.memory(|m| m.area_rect(peek_window_id(Group::Character))).is_some(), "the hidden group's peek window is drawn");
+    h.event(egui::Event::Key { key: Key::Escape, physical_key: Some(Key::Escape), pressed: true, repeat: false, modifiers: Modifiers::NONE });
+    h.run_steps(2);
+    assert!(h.state().ui.panel_peek.is_none(), "Escape closes the peek");
+    // The shown group's icon opens its peek, with a close box.
+    icon_button(&h, Group::Layers).click();
     h.run_steps(3);
     assert_eq!(h.state().ui.panel_peek.as_ref().map(|p| p.group), Some(Group::Layers));
-    assert!(h.ctx.memory(|m| m.area_rect(peek_id())).is_some(), "the peek window is drawn");
+    assert!(h.ctx.memory(|m| m.area_rect(peek_window_id(Group::Layers))).is_some(), "the peek window is drawn");
     assert!(h.query_by_label("Close").is_some(), "the peek carries a close box");
     shoot(&mut h, "peek");
+    // Clicking the lit icon again closes it (the no-params `window.panel.peek` parity).
+    icon_button(&h, Group::Layers).click();
+    h.run_steps(2);
+    assert!(h.state().ui.panel_peek.is_none(), "re-clicking the peeked icon closes the peek");
     // A press outside the window and the rail closes the peek, like dock.rs's collapsed-group
-    // peek; the label chip keeps its accent tint while open.
+    // peek.
+    icon_button(&h, Group::Layers).click();
+    h.run_steps(3);
     press(&mut h, Pos2::new(60.0, 400.0));
     assert!(h.state().ui.panel_peek.is_none(), "a click outside closes the peek");
     // The command reaches the same state (automation parity), without an anchor.
@@ -152,17 +164,10 @@ fn a_rail_label_opens_a_floating_peek_that_follows_focus() {
     assert!(h.state().ui.panel_peek.is_none(), "dock::apply ends a peek");
 }
 
-/// `set_group_shown` covers every group in the legacy dock and in a customized layout, and no
-/// panel command resurrects a hidden dock column (panel_docking used to re-assert it).
+/// No panel command resurrects a hidden dock column (panel_docking used to re-assert it).
 #[test]
-fn set_group_shown_covers_every_group_in_both_dock_modes() {
+fn panel_commands_do_not_resurrect_the_hidden_dock() {
     let mut a = app();
-    for g in Group::ALL {
-        set_group_shown(&mut a, g, true);
-        assert!(g.shown(&a.ui.panels), "{g:?} not shown");
-        set_group_shown(&mut a, g, false);
-        assert!(!g.shown(&a.ui.panels), "{g:?} not hidden");
-    }
     // A customized layout: group-level activate/close through the shared docking tree.
     a.run("window.panel.float", json!({"panel": "layers", "x": 320.0, "y": 120.0, "width": 280.0, "height": 300.0})).unwrap();
     assert!(a.ui.docking.is_some());
@@ -175,9 +180,4 @@ fn set_group_shown_covers_every_group_in_both_dock_modes() {
     assert!(!a.ui.panels.dock, "a panel command resurrected the hidden dock");
     a.run("window.panel.layers", json!({})).unwrap();
     assert!(!a.ui.panels.dock, "an activate resurrected the hidden dock");
-    set_group_shown(&mut a, Group::Layers, false);
-    assert!(!a.ui.panels.layers, "the customized group did not close");
-    set_group_shown(&mut a, Group::Layers, true);
-    assert!(a.ui.panels.layers, "the customized group did not come back");
-    assert!(!a.ui.panels.dock, "restoring a panel resurrected the hidden dock");
 }
