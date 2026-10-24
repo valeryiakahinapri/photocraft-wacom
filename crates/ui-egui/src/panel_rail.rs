@@ -27,17 +27,21 @@ pub(crate) fn peek_id() -> egui::Id {
 /// carry an explicit show/hide through commands that work the same both ways.
 pub(crate) fn set_group_shown(app: &mut PhotocraftApp, group: Group, show: bool) {
     if app.ui.docking.is_some() {
-        // Customized: activate restores the group from its hidden return location; closing the
-        // first member closes its tab group, so the checkbox follows `sync_visibility`.
-        let Some(primary) = crate::panel_docking::group_ids(group).first().copied() else { return };
-        let present = app.ui.docking.as_ref().is_some_and(|layout| layout.contains(&primary.to_string()));
+        // Customized: activate restores the group from its hidden return location; hiding closes
+        // every member still in the layout (members can sit in more than one tab group), so the
+        // checkbox follows `sync_visibility`'s any-member projection.
+        let ids = crate::panel_docking::group_ids(group);
+        let Some(primary) = ids.first().copied() else { return };
         if show {
             if let Err(error) = app.run("window.panel.activate", json!({"panel": primary})) {
                 app.ui.status = error;
             }
-        } else if present {
-            if let Err(error) = app.run("window.panel.group", json!({"panel": primary, "operation": "close"})) {
-                app.ui.status = error;
+        } else {
+            for id in ids {
+                let present = app.ui.docking.as_ref().is_some_and(|layout| layout.contains(&id.to_string()));
+                if present && let Err(error) = app.run("window.panel.group", json!({"panel": id, "operation": "close"})) {
+                    app.ui.status = error;
+                }
             }
         }
         return;
@@ -92,10 +96,12 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
             ui.push_id("panel-toggle", |ui| {
                 let resp = crate::icons::button(ui, "panel-right", rb, p.dock, tl!("Show/Hide Panels"));
                 let align = if crate::direction::is_rtl() { egui::RectAlign::RIGHT_START } else { egui::RectAlign::LEFT_START };
+                let popup_id = egui::Popup::default_response_id(&resp);
+                ui.ctx().data_mut(|d| d.insert_temp(rail_popup_id_id(), popup_id));
                 egui::Popup::menu(&resp).align(align).show(|ui| visibility_menu(app, ui, p));
             });
+            ui.separator();
             if p.dock {
-                ui.separator();
                 for g in ICON_ORDER {
                     // Studio floats Properties outside the dock.
                     let docked = t.pro || g != Group::Properties;
@@ -123,6 +129,12 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
     // The peek window places itself beside the rail and keeps clicks on the rail from
     // counting as "outside" (see [`peek_window`]).
     ui.ctx().data_mut(|d| d.insert_temp(rail_rect_id(), resp.response.rect));
+}
+
+/// Whether the rail draws at all: its own flag, minus the chrome Tab hid with the dock (so
+/// Tab hides everything, #1313) — the same rule `panels::right_dock` gates the rail with.
+pub(crate) fn rail_visible(p: &Panels) -> bool {
+    p.rail && !(p.hidden_by_tab.is_some() && !p.dock)
 }
 
 /// The rail toggle's popover: the dock column's own visibility, then one row per panel group
@@ -165,7 +177,7 @@ fn label_chip(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens, g: Group, 
         return;
     }
     let peeked = app.ui.panel_peek.as_ref().is_some_and(|peek| peek.group == g);
-    let font = egui::FontId::proportional(11.5);
+    let font = crate::theme::medium(11.5);
     let galley = ui.ctx().fonts_mut(|f| f.layout_no_wrap(tl!(g.label()).to_owned(), font, egui::Color32::PLACEHOLDER));
     let (along, across) = (galley.rect.width(), galley.rect.height());
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, along + 8.0), egui::Sense::click());
@@ -206,6 +218,18 @@ fn rail_rect_id() -> egui::Id {
     egui::Id::new("panel-rail-rect")
 }
 
+/// The id the rail publishes the toggle popover under, so a peek's focus-loss rule can count
+/// presses inside the popover as inside (see [`peek_window`]).
+fn rail_popup_id_id() -> egui::Id {
+    egui::Id::new("panel-rail-popup")
+}
+
+/// The peek window's id is per group: a user-resized window keeps its size for that group's
+/// peeks, without imposing it on another group's (`Window` area state lives by id).
+fn peek_window_id(g: Group) -> egui::Id {
+    peek_id().with(g.key())
+}
+
 /// Draw the floating peek window of the group opened from the collapsed-dock rail
 /// ([`rail`]). A peek follows focus, like inspector panels that collapse: Escape, the window's
 /// close, or the next pointer press outside the window and the rail closes it and returns the
@@ -214,12 +238,22 @@ fn rail_rect_id() -> egui::Id {
 pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some(peek) = app.ui.panel_peek.clone() else { return };
     let g = peek.group;
+    // A peek is a hidden-dock affordance only: the column coming back — however that happened
+    // (popover row, Tab chrome, ui.set, a workspace) — or the rail itself disappearing ends it,
+    // whatever path forgot to clear the state on the way.
+    if app.ui.panels.dock || !rail_visible(&app.ui.panels) {
+        app.ui.panel_peek = None;
+        return;
+    }
     if let Some(p) = ctx.input(|i| i.pointer.any_pressed().then(|| i.pointer.press_origin()).flatten()) {
         // On the opening frame the window area does not exist yet: keep it (dock.rs's peek
         // counts a rect it just drew; here the click that opened came from the rail anyway).
-        let inside_window = ctx.memory(|m| m.area_rect(peek_id())).is_none_or(|r| r.contains(p));
+        // Presses on the visibility popover (drawn left of the rail) count as inside too.
+        let popup_id = ctx.data(|d| d.get_temp::<egui::Id>(rail_popup_id_id()));
+        let inside_window = ctx.memory(|m| m.area_rect(peek_window_id(g))).is_none_or(|r| r.contains(p));
         let inside_rail = ctx.data(|d| d.get_temp::<egui::Rect>(rail_rect_id())).is_some_and(|r| r.contains(p));
-        if !inside_window && !inside_rail {
+        let inside_popup = popup_id.is_some_and(|id| ctx.memory(|m| m.area_rect(id)).is_some_and(|r| r.contains(p)));
+        if !inside_window && !inside_rail && !inside_popup {
             app.ui.panel_peek = None;
             return;
         }
@@ -238,7 +272,7 @@ pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         .shadow(egui::Shadow { offset: [0, 10], blur: 30, spread: 0, color: t.shadow })
         .inner_margin(egui::Margin::same(8));
     let mut window = egui::Window::new(tl!(g.label()).to_owned())
-        .id(peek_id())
+        .id(peek_window_id(g))
         .title_bar(false)
         .resizable(true)
         .min_size(egui::vec2(280.0, g.min_height()))
@@ -248,9 +282,12 @@ pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         // Beside the rail, at the click that opened it (Windows/automation without an anchor
         // get the rail's top). `current_pos` applies once: after that the window owns its spot.
         let area = ctx.content_rect();
-        let rail = ctx
-            .data(|d| d.get_temp::<egui::Rect>(rail_rect_id()))
-            .unwrap_or_else(|| egui::Rect::from_min_size(egui::pos2(area.right(), area.top()), egui::vec2(36.0, area.height())));
+        let fallback = if crate::direction::is_rtl() {
+            egui::Rect::from_min_size(egui::pos2(area.left(), area.top()), egui::vec2(36.0, area.height()))
+        } else {
+            egui::Rect::from_min_size(egui::pos2((area.right() - 36.0).max(area.left()), area.top()), egui::vec2(36.0, area.height()))
+        };
+        let rail = ctx.data(|d| d.get_temp::<egui::Rect>(rail_rect_id())).unwrap_or(fallback);
         let x = if crate::direction::is_rtl() { rail.right() } else { rail.left() - width };
         let y = peek.anchor.map_or(area.top() + 90.0, |a| a.y.clamp(area.top(), (area.bottom() - g.min_height()).max(area.top())));
         window = window.current_pos(egui::pos2(x, y));
@@ -267,18 +304,20 @@ pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
             });
         });
         // The group's tabs as pills, like the dock's strip: a switch selects the panel the
-        // dock would show, so a re-shown dock and the peek agree on the tab.
+        // dock would show, so a re-shown dock and the peek agree on the tab. The tab is read
+        // live: the popover or automation may have changed the selection while peeked.
+        let tab = *g.tab_mut(&mut app.ui.dock_tabs);
         let visible = app.ui.dock.visible_tabs(g, pro);
         if visible.len() > 1 {
             crate::widgets::hairline(ui);
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
-                for (tab, name) in visible {
+                for (tab_i, name) in visible {
                     let label = tl!(name);
-                    if crate::widgets::pill_tab(ui, &label, peek.tab == tab).clicked() {
-                        *g.tab_mut(&mut app.ui.dock_tabs) = tab;
+                    if crate::widgets::pill_tab(ui, &label, tab == tab_i).clicked() {
+                        *g.tab_mut(&mut app.ui.dock_tabs) = tab_i;
                         if let Some(current) = app.ui.panel_peek.as_mut() {
-                            current.tab = tab;
+                            current.tab = tab_i;
                         }
                     }
                 }
@@ -286,15 +325,16 @@ pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         }
         crate::widgets::hairline(ui);
         ui.add_space(4.0);
+        let tab = *g.tab_mut(&mut app.ui.dock_tabs);
         let inner = ui.available_height().max(0.0);
-        if g.scrolls_itself(peek.tab) {
+        if g.scrolls_itself(tab) {
             ui.set_min_height(inner);
-            crate::panels::dock_body(app, ui, g, peek.tab);
+            crate::panels::dock_body(app, ui, g, tab);
         } else {
-            crate::panels::offer_color_field_fill(ui, pro, g, peek.tab);
+            crate::panels::offer_color_field_fill(ui, pro, g, tab);
             ui.spacing_mut().scroll.fade.strength = 0.0;
             egui::ScrollArea::vertical().id_salt(("peek-scroll", g.key())).max_height(inner).auto_shrink([false, false]).show(ui, |ui| {
-                crate::panels::dock_body(app, ui, g, peek.tab);
+                crate::panels::dock_body(app, ui, g, tab);
             });
         }
     });

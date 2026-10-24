@@ -130,6 +130,16 @@ fn a_rail_label_opens_a_floating_peek_that_follows_focus() {
     h.state_mut().run("window.toggle.dock", json!({})).unwrap();
     h.run_steps(3);
     assert!(h.state().ui.panels.dock && h.state().ui.panel_peek.is_none(), "the dock returning ends the peek");
+    // Tab hiding the chrome with the dock ends a peek too (the peek is a hidden-dock
+    // affordance; the guard in peek_window clears it however the dock comes back).
+    h.state_mut().run("window.toggle.dock", json!({})).unwrap();
+    h.run_steps(2);
+    h.state_mut().run("window.panel.peek", json!({"panel": "layers"})).unwrap();
+    h.run_steps(3);
+    assert!(h.state().ui.panel_peek.is_some());
+    h.state_mut().run("window.togglePanels", json!({})).unwrap();
+    h.run_steps(3);
+    assert!(h.state().ui.panel_peek.is_none(), "Tab's hidden chrome ends the peek");
     // A saved layout applied over an open peek ends it as well (dock::apply).
     h.state_mut().run("window.toggle.dock", json!({})).unwrap();
     h.run_steps(2);
@@ -159,9 +169,12 @@ fn set_group_shown_covers_every_group_in_both_dock_modes() {
     assert!(a.ui.panels.layers);
     a.run("window.toggle.dock", json!({})).unwrap();
     assert!(!a.ui.panels.dock);
-    // What crop_ui.rs fires on a crop overlay must not bring the column back (#P0-2).
-    a.run("window.panel.layers", json!({})).unwrap();
+    // An explicit show of a floating member must not bring the column back, and neither may the
+    // no-params activate crop_ui fires (#P0-2 both ways: change() and apply_action()).
+    a.run("window.panel.layers", json!({"show": true})).unwrap();
     assert!(!a.ui.panels.dock, "a panel command resurrected the hidden dock");
+    a.run("window.panel.layers", json!({})).unwrap();
+    assert!(!a.ui.panels.dock, "an activate resurrected the hidden dock");
     set_group_shown(&mut a, Group::Layers, false);
     assert!(!a.ui.panels.layers, "the customized group did not close");
     set_group_shown(&mut a, Group::Layers, true);

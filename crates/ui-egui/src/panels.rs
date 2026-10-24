@@ -1816,14 +1816,17 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let customized = if app.ui.panels.dock { crate::panel_docking::show(app, ui) } else { app.ui.docking.is_some() };
     let t = Tokens::get(ui.ctx());
     let p = app.ui.panels.clone();
-    let rail_visible = p.rail && !(p.hidden_by_tab.is_some() && !p.dock);
-    if p.dock && t.pro && !customized {
+    // In Full Screen Mode, Tab shows the dock over the black canvas even when it was hidden
+    // (#6760): the tabbed-in view brings the column back without touching its flag.
+    let tabbed_in = app.ui.view.hides_chrome() && app.ui.panels.full_screen_chrome;
+    let show_column = p.dock || tabbed_in;
+    if show_column && t.pro && !customized {
         dock_panels(app, ui, &p, &t);
     }
-    if rail_visible {
+    if crate::panel_rail::rail_visible(&p) {
         crate::panel_rail::rail(app, ui, &p, customized);
     }
-    if p.dock && !t.pro && !customized {
+    if show_column && !t.pro && !customized {
         dock_panels(app, ui, &p, &t);
     }
     crate::dock::persist(app, ui.ctx());
