@@ -304,3 +304,36 @@ R5. **Tests:** rewrite panel_rail_tests for the icon rail: toggle click flips pa
     — rail_button titles); icon click opens the peek (window with the group's label
     exists); re-click/Escape/outside-press closes; expanded icon click still routes
     rail_click (collapse-to-strip, #129). Drop the popover + set_group_shown rows.
+
+## REV 4 — review outcomes (2026-10-24 session 3, INCORPORATED)
+
+Round 4 (sub-agent review, worklog `1-r4-review`) — verdicts landed:
+
+- **R3 replaced wholesale**: the hand-rolled exact_size glide would have corrupted egui's
+  persisted dock width (`PanelState` stores every frame outside its own animation paths; the
+  collapse glide's last store ≈ 0 → dock resets to DOCK_MIN_WIDTH on every hide/show). The
+  robust mechanic is egui 0.36's own `Panel::show_collapsible`: full-width content clipped to
+  the animated slice, store skipped while animating, cubic-out ~0.2s, repaint only while
+  sliding, RTL automatic, honors the Enable-Animations pref. Both rail-order call sites
+  (pro/classic) pass `&mut expanded` through `dock_panels`; `.drag_to_open(false)` (the rail's
+  icons and toggle are the way back — no stray grab handle); egui's gesture collapses
+  (drag-past-min) write back through `window.toggle.dock` — or `window.togglePanels` when the
+  #6760 tabbed-in chrome was the shower. Kittests set animation_time=0, so final states assert
+  as before.
+- **Deliberate deviation (scoped)**: the CUSTOMIZED-docking column keeps its instant toggle
+  this round. `panel_docking::show`'s prologue consumes `docking_reveal` and the
+  `dockWidth` request before the panel decides to draw, so calling it while collapsed
+  (required to animate its slide-out) would eat those requests — a safe integration needs
+  that state moved into the draw closure, a refactor beyond this round. The shared RAIL (the
+  mockup's core grammar — icons, peek flyout, focus loss) behaves identically in both modes;
+  only the collapse animation is legacy-only for now. Noted for a follow-up.
+- **P1s landed**: re-click on the lit (peeked) rail icon closes the peek (no-params
+  `window.panel.peek` parity); the STALE pre-existing test assert (`area_rect(peek_id())`
+  after f8d0faae moved windows to per-group ids — verified never-registered) fixed to
+  `peek_window_id(g)`; hidden-group icons open peeks (all-Closed groups render their stored
+  tab, no pill row — asserted); the dock-resurrection regression rows survive in their own
+  test now that `set_group_shown` is gone.
+- **P2s**: opacity fade dropped (`Ui::set_opacity` does not fade a SidePanel's Frame fill);
+  `ui.set dockWidth` mid-animation is consumed-and-lost (accepted; automation + a 0.2s window
+  is pathological); module docs updated.
+- The unused "Hide Dock"/"Show Dock" catalog rows stay (harmless; coverage is a report).
