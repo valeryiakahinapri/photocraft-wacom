@@ -2806,6 +2806,8 @@ cameraRaw	Blending	Stapanje
 	Scroll to zoom	Pomerajte točkić za zumiranje
 	Show/Hide All Panels	Prikaži/sakrij sve panele
 	Show/Hide Panels	Prikaži/sakrij panele
+	Hide Dock	Sakrij dock
+	Show Dock	Prikaži dock
 	Could not open	Otvaranje nije uspelo
 	{path}: the path is not valid Unicode; rename the file and open it again.	{path}: putanja nije ispravan Unicode; preimenujte datoteku i ponovo je otvorite.
 

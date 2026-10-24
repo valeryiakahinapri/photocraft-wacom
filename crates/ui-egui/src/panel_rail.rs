@@ -57,6 +57,22 @@ pub(crate) fn set_group_shown(app: &mut PhotocraftApp, group: Group, show: bool)
     }
 }
 
+/// The group icons in the rail's fixed (Photoshop Essentials) display order.
+const ICON_ORDER: [Group; 7] = [Group::Properties, Group::Navigator, Group::Color, Group::Layers, Group::History, Group::Brushes, Group::Character];
+
+/// The rail icon of `group` (also used by the visibility popover's rows).
+fn icon(group: Group) -> &'static str {
+    match group {
+        Group::Properties => "sliders-horizontal",
+        Group::Navigator => "navigation",
+        Group::Color => "palette",
+        Group::Layers => "layers",
+        Group::History => "clock",
+        Group::Brushes => "brush",
+        Group::Character => "type",
+    }
+}
+
 /// Draw the rail. `customized` is whether the shared (dragged-out) panel layout owns visibility.
 pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, customized: bool) {
     let t = Tokens::get(ui.ctx());
@@ -71,25 +87,50 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
             let x = if crate::direction::is_rtl() { r.right() + 6.0 } else { r.left() - 6.0 };
             ui.painter().line_segment([pos2(x, r.top() - 8.0), pos2(x, r.bottom() + 8.0)], Stroke::new(1.0, t.separator));
             ui.spacing_mut().item_spacing.y = 4.0;
-            let entries: [(&str, &str, Group); 6] = [
-                ("sliders-horizontal", tl!("Properties"), Group::Properties),
-                ("navigation", tl!("Navigator"), Group::Navigator),
-                ("palette", tl!("Color & Swatches"), Group::Color),
-                ("layers", tl!("Layers"), Group::Layers),
-                ("clock", tl!("History"), Group::History),
-                ("brush", tl!("Brushes"), Group::Brushes),
-            ];
-            for (icon, name, g) in entries {
-                // Studio floats Properties outside the dock.
-                let docked = t.pro || g != Group::Properties;
-                let on = if customized { crate::panel_docking::rail_on(app, g) } else { g.shown(p) && !(docked && app.ui.dock.is_collapsed(g)) };
-                if crate::icons::rail_button(ui, icon, rb, on, name).clicked() {
-                    if customized {
-                        crate::panel_docking::rail_click(app, g);
-                    } else {
-                        crate::dock::rail_click(app, g, docked);
+            // The visibility toggle on top of the rail: one place to hide or show the dock
+            // column and each panel group in it, whatever dock mode is active.
+            ui.push_id("panel-toggle", |ui| {
+                let resp = crate::icons::button(ui, "panel-right", rb, p.dock, tl!("Show/Hide Panels"));
+                let align = if crate::direction::is_rtl() { egui::RectAlign::RIGHT_START } else { egui::RectAlign::LEFT_START };
+                egui::Popup::menu(&resp).align(align).show(|ui| visibility_menu(app, ui, p, customized));
+            });
+            if p.dock {
+                ui.separator();
+                for g in ICON_ORDER {
+                    // Studio floats Properties outside the dock.
+                    let docked = t.pro || g != Group::Properties;
+                    let on = if customized { crate::panel_docking::rail_on(app, g) } else { g.shown(p) && !(docked && app.ui.dock.is_collapsed(g)) };
+                    if crate::icons::rail_button(ui, icon(g), rb, on, g.label()).clicked() {
+                        if customized {
+                            crate::panel_docking::rail_click(app, g);
+                        } else {
+                            crate::dock::rail_click(app, g, docked);
+                        }
                     }
                 }
             }
         });
+}
+
+/// The rail toggle's popover: the dock column's own visibility, then one row per panel group
+/// (`set_group_shown` carries the show/hide, whichever dock mode is active).
+fn visibility_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, customized: bool) {
+    crate::widgets::style_spectrum_popup_menu(ui);
+    ui.set_min_width(200.0);
+    if ui.button(if p.dock { tl!("Hide Dock") } else { tl!("Show Dock") }).clicked() {
+        let _ = app.run("window.toggle.dock", json!({}));
+        ui.close();
+    }
+    ui.separator();
+    for g in app.ui.dock.order() {
+        let mut on = g.shown(p);
+        ui.horizontal(|ui| {
+            let tint = ui.visuals().text_color();
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+            crate::icons::paint(ui, rect, icon(g), 14.0, tint);
+            if ui.checkbox(&mut on, tl!(g.label())).changed() {
+                set_group_shown(app, g, on);
+            }
+        });
+    }
 }

@@ -3016,6 +3016,8 @@ cameraRaw	Color	색상
 	Drag to pan · Scroll to zoom · Double-click to fit	드래그하여 이동 · 스크롤하여 확대/축소 · 두 번 클릭하여 맞추기
 	Show/Hide All Panels	모든 패널 표시/숨기기
 	Show/Hide Panels	패널 표시/숨기기
+	Hide Dock	독 숨기기
+	Show Dock	독 표시
 	Could not open	열 수 없음
 	{path}: the path is not valid Unicode; rename the file and open it again.	{path}: 경로가 올바른 유니코드가 아닙니다. 파일 이름을 바꾼 뒤 다시 여세요.
 	Good	좋음

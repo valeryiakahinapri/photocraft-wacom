@@ -2378,6 +2378,8 @@ cameraRaw	Color	カラー
 	Scroll to zoom	スクロールしてズーム
 	Show/Hide All Panels	すべてのパネルを表示/非表示
 	Show/Hide Panels	パネルを表示/非表示
+	Hide Dock	ドックを非表示
+	Show Dock	ドックを表示
 	Could not open	開けませんでした
 	{path}: the path is not valid Unicode; rename the file and open it again.	{path}: パスが有効な Unicode ではありません。ファイル名を変更してから開き直してください。
 
