@@ -58,6 +58,37 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Va
 
 /// [`invoke`] without the unsaved-changes prompt, for once the user has already answered it.
 pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Value) -> Result<Value, String> {
+    // EMBED-DESIGN-CLOUD B3 — File ▸ Open from Library ▸ <asset>: ask
+    // the connected host for the asset's bytes; it answers through the
+    // normal open path (the shell's inbox), so the asset opens as a new
+    // document tab.
+    if id.starts_with(crate::cloud::LIBRARY_ITEM) {
+        return match app.services.cloud.as_ref() {
+            Some(cloud) => {
+                let asset = &id[crate::cloud::LIBRARY_ITEM.len()..];
+                if asset == "empty" {
+                    return Ok(Value::Null);
+                }
+                (cloud.open)(asset);
+                Ok(Value::Null)
+            }
+            None => Err("no cloud library connected".to_string()),
+        };
+    }
+    // EMBED-DESIGN-CLOUD B3 — File ▸ Save to Library: every open
+    // document, in order, handed to the host (the write service routes
+    // the bytes when a cloud library is connected).
+    if id == crate::cloud::SAVE_TO_LIBRARY {
+        if app.services.cloud.is_none() {
+            return Err("no cloud library connected".to_string());
+        }
+        let (saved, failed) = crate::cloud::save_all_to_library(app);
+        if failed > 0 {
+            app.ui.status = format!("{failed} of {} documents could not be saved to the library", saved + failed);
+            app.ui.status_error = true;
+        }
+        return Ok(json!({"saved": saved, "failed": failed}));
+    }
     if let Some(tool) = crate::tool_shortcuts::tool(id) {
         crate::tool_memory::select(app, tool);
         return Ok(json!({"tool": tool}));

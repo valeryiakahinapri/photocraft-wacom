@@ -761,6 +761,15 @@ pub(crate) fn state_hash(app: &PhotocraftApp, input: Option<u64>) -> u64 {
     let ui = &app.ui;
     (&ui.recent_files, &ui.workspace, ui.palette_open, ui.transform.is_some(), ui.text_edit.is_some(), ui.dialogs.len()).hash(&mut h);
     (app.discard.is_some(), app.camera_raw.is_some(), crate::distort_ui::modal_workspace(app)).hash(&mut h);
+    // EMBED-DESIGN-CLOUD (menu staleness): a listing the host pushed while
+    // a File menu is open rebuilds it (File ▸ Open from Library).
+    if let Some(cloud) = app.services.cloud.as_ref() {
+        let entries = cloud.entries.lock().unwrap_or_else(|e| e.into_inner());
+        entries.len().hash(&mut h);
+        for e in entries.iter().take(64) {
+            (&e.id, &e.name).hash(&mut h);
+        }
+    }
     serde_json::to_string(&(&ui.panels, &ui.extras, &ui.view, ui.theme, ui.tool)).unwrap_or_default().hash(&mut h);
     s.prefs().interface.language.hash(&mut h);
     h.finish()

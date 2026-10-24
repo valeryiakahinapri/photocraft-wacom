@@ -14,6 +14,7 @@ macro_rules! tl {
     };
 }
 pub mod canvas;
+pub mod cloud;
 pub mod control;
 pub mod dialogs;
 pub mod dock;

@@ -165,6 +165,67 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             items.insert(after + 1 + k, it);
         }
     }
+    // EMBED-DESIGN-CLOUD B3 — File ▸ Save to Library, after "Save a Copy…"
+    // (only while a cloud library is connected; save-ALL semantics — one
+    // click hands every open document to the host, like the host's own
+    // "Save to Library (N)" button).
+    if app.services.cloud.is_some()
+        && let Some(after) = items.iter().position(|i| i.id == "file.saveACopy")
+    {
+        items.insert(
+            after + 1,
+            MenuItem {
+                id: crate::cloud::SAVE_TO_LIBRARY.into(),
+                label: "Save to Library".into(),
+                path: vec!["File".into()],
+                shortcut: None,
+                enabled: app.session.active().is_some(),
+                checked: None,
+                color: None,
+            },
+        );
+    }
+    // EMBED-DESIGN-CLOUD B3 — File ▸ Open from Library: a dynamic submenu of
+    // the host's listing (the openRecent pattern), inserted only while a
+    // cloud library is connected — a standalone editor never sees it.
+    if let Some(cloud) = app.services.cloud.as_ref() {
+        let entries = cloud.listing();
+        let lp: Vec<String> = vec!["File".into(), "Open from Library".into()];
+        let mut rows: Vec<MenuItem> = Vec::with_capacity(entries.len() + 1);
+        if entries.is_empty() {
+            rows.push(MenuItem {
+                id: format!("{}empty", crate::cloud::LIBRARY_ITEM),
+                label: "(no assets yet)".into(),
+                path: lp.clone(),
+                shortcut: None,
+                enabled: false,
+                checked: None,
+                color: None,
+            });
+        } else {
+            for e in &entries {
+                rows.push(MenuItem {
+                    id: format!("{}{}", crate::cloud::LIBRARY_ITEM, e.id),
+                    label: e.name.clone(),
+                    path: lp.clone(),
+                    shortcut: None,
+                    enabled: true,
+                    checked: None,
+                    color: None,
+                });
+            }
+        }
+        // After the whole Open Recent group when there is one, else after "Open As…".
+        let after = items
+            .iter()
+            .rposition(|i| i.path.len() == 2 && i.path[0] == "File" && i.path[1] == "Open Recent")
+            .or_else(|| items.iter().position(|i| i.id == "file.openAs"));
+        if let Some(at) = after {
+            for (k, it) in rows.into_iter().enumerate() {
+                items.insert(at + 1 + k, it);
+            }
+        }
+    }
     // Window › Workspace: saved workspaces follow the presets, checked while current.
     let saved = crate::workspace_ui::saved_names(app);
     if !saved.is_empty()

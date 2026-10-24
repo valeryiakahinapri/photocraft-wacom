@@ -50,6 +50,11 @@ pub fn start() {
         log::error!("could not install the PhotoCraft JavaScript API: {error:?}");
     }
     wasm_bindgen_futures::spawn_local(async {
+        // EMBED-DESIGN-CLOUD B0 — the host bridge: created BEFORE the runner
+        // (the prefs pre-seed must win the app's prefs load); cloned into
+        // the app-creation closure (install) and kept here for the boot
+        // outcome posts. Standalone → fully inert.
+        let host = crate::host_bridge::HostBridge::new();
         let Some(document) = web_sys::window().and_then(|w| w.document()) else {
             log::debug!("no browser document; skipping visual app startup");
             return;
@@ -89,10 +94,18 @@ pub fn start() {
                     let place_inbox: Inbox = Arc::default();
                     let served: Served = Arc::default();
                     load_font_manifest(served.clone(), cc.egui_ctx.clone());
+                    // EMBED-DESIGN-CLOUD B0 — arm the listener and announce
+                    // `ready` before the first frame (the host only speaks
+                    // after it, so no pre-boot buffering exists).
+                    host.install(cc.egui_ctx.clone(), inbox.clone());
+                    let host_clone = host.clone();
                     let (session, warnings) = crate::preset_bridge::session(presets.clone());
                     preset_warnings.extend(warnings);
                     let drag = listen_drag(&pen_target);
-                    let mut app = PhotocraftApp::new(session, services(inbox.clone(), place_inbox.clone(), drag_pos_service(pen_target.clone(), drag)));
+                    let mut app = PhotocraftApp::new(
+                        session,
+                        services(inbox.clone(), place_inbox.clone(), drag_pos_service(pen_target.clone(), drag), host),
+                    );
                     if !preset_warnings.is_empty() {
                         photocraft_ui_egui::notices::post(&mut app, i18n::t("Some brush presets could not be loaded"), preset_warnings, true, None);
                     }
@@ -106,14 +119,22 @@ pub fn start() {
                     }
                     let unsaved = Arc::new(AtomicBool::new(false));
                     guard_unload(unsaved.clone());
-                    Ok(Box::new(WebShell { app, inbox, place_inbox, unsaved, served, database, presets }))
+                    Ok(Box::new(WebShell { app, inbox, place_inbox, unsaved, served, database, presets, host: host_clone }))
                 }),
             )
             .await;
         if let Some(el) = document.get_element_by_id("photocraft_loading") {
             match result {
-                Ok(()) => el.remove(),
-                Err(e) => el.set_inner_html(&format!("<p>PhotoCraft failed to start: {e:?}</p><p>A browser with WebGPU or WebGL2 is required.</p>")),
+                Ok(()) => {
+                    el.remove();
+                    // EMBED-DESIGN-CLOUD B0 — the boot outcome (the host's own
+                    // watchdog covers the pre-wasm failures Rust can't see).
+                    host.post_booted();
+                }
+                Err(e) => {
+                    el.set_inner_html(&format!("<p>PhotoCraft failed to start: {e:?}</p><p>A browser with WebGPU or WebGL2 is required.</p>"));
+                    host.post_boot_failed(&format!("{e:?}"));
+                }
             }
         }
     });
@@ -273,6 +294,9 @@ struct WebShell {
     served: Served,
     database: Option<web_sys::IdbDatabase>,
     presets: crate::preset_bridge::Bridge,
+    /// EMBED-DESIGN-CLOUD B4 — the host bridge (the command-queue drain +
+    /// the docs/dirty truth posts + the esc forwards).
+    host: crate::host_bridge::HostBridge,
 }
 
 impl WebShell {
@@ -336,6 +360,14 @@ impl eframe::App for WebShell {
         // queue, but the clipboard key mapping (`Event::PasteImage`), legacy pinch, pen-hold and
         // titlebar normalization live in the app hook and must run here too.
         eframe::App::raw_input_hook(&mut self.app, ctx, raw_input);
+        // EMBED-DESIGN-CLOUD B0 — every Escape the app's raw input observes
+        // (the host's double-press-to-close law; host-DOM presses never
+        // reach eframe, so only real in-app presses forward).
+        for event in &raw_input.events {
+            if let egui::Event::Key { key: egui::Key::Escape, pressed: true, .. } = event {
+                self.host.post_esc();
+            }
+        }
     }
 
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
@@ -365,6 +397,9 @@ impl eframe::App for WebShell {
         }
         self.serve_fonts(ctx);
         self.app.logic_frame(ctx, frame);
+        // EMBED-DESIGN-CLOUD B4 — the host bridge's tick: the command-queue
+        // drain + the docs/dirty truth posts.
+        self.host.tick(&mut self.app, ctx);
         self.save_presets(ctx);
         self.app.finish_type_reset_logic(ctx);
     }
@@ -399,7 +434,18 @@ impl eframe::App for WebShell {
     }
 }
 
-fn services(inbox: Inbox, place_inbox: Inbox, cursor_pos: photocraft_ui_egui::CursorPosFn) -> Services {
+fn services(
+    inbox: Inbox,
+    place_inbox: Inbox,
+    cursor_pos: photocraft_ui_egui::CursorPosFn,
+    host: crate::host_bridge::HostBridge,
+) -> Services {
+    // EMBED-DESIGN-CLOUD B2 — while a host is connected the library IS the
+    // save target (every write the app makes is posted as a `saved`
+    // message instead of a download), and the writes are CONFIRMED (the
+    // document's changes settle saved; the dirty flag and the leave guard
+    // go quiet after a library save).
+    let host_write = host.clone();
     Services {
         screen_pick: screen_color_service(),
         import: Some(Box::new(|name: &str, bytes: &[u8], opts: &photocraft_io::ImportOptions| {
@@ -444,9 +490,11 @@ fn services(inbox: Inbox, place_inbox: Inbox, cursor_pos: photocraft_ui_egui::Cu
                 reply.send(Some(FileDialogAnswer::SaveTo(name)));
             }
         })),
-        write: Some(Box::new(|path: &str, bytes: &[u8]| download(path, bytes))),
-        // A download may be cancelled and never reports back: it doesn't save the document.
-        write_unconfirmed: true,
+        write: Some(Box::new(move |path: &str, bytes: &[u8]| host_write.write(path, bytes))),
+        // A connected host CONFIRMS every write (the same-origin postMessage
+        // is reliable); a browser download may be cancelled and never
+        // reports back, so it doesn't save the document.
+        write_unconfirmed: !host.is_connected(),
         encode_png: Some(Box::new(|w, h, rgba| {
             let img = Image::from_u8(w, h, ChannelLayout::Rgba, rgba.to_vec()).map_err(|e| e.to_string())?;
             photocraft_codecs::encode(&img, photocraft_codecs::Format::Png, &EncodeOptions::default()).map_err(|e| e.to_string())
@@ -454,6 +502,9 @@ fn services(inbox: Inbox, place_inbox: Inbox, cursor_pos: photocraft_ui_egui::Cu
         inbox: Some(inbox),
         place_inbox: Some(place_inbox),
         cursor_pos: Some(cursor_pos),
+        // EMBED-DESIGN-CLOUD B1 — the cloud-library seam (File ▸ Open from
+        // Library ▸ / Save to Library appear only while connected).
+        cloud: host.cloud_handle(),
         // Preferences live in the browser's localStorage.
         load_prefs: Some(Box::new(|| local_storage()?.get_item(PREFS_KEY).ok().flatten())),
         save_prefs: Some(Box::new(|text: &str| local_storage().ok_or("no localStorage")?.set_item(PREFS_KEY, text).map_err(|e| format!("{e:?}")))),
@@ -468,7 +519,7 @@ fn local_storage() -> Option<web_sys::Storage> {
 }
 
 /// Trigger a browser download of `bytes` named after the last component of `path`.
-fn download(path: &str, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn download(path: &str, bytes: &[u8]) -> Result<(), String> {
     let js = |e: wasm_bindgen::JsValue| format!("{e:?}");
     let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "photocraft".into());
     let window = web_sys::window().ok_or("no window")?;
@@ -494,7 +545,7 @@ fn download(path: &str, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-fn mime_for(name: &str) -> &'static str {
+pub(crate) fn mime_for(name: &str) -> &'static str {
     match name.rsplit('.').next().map(str::to_ascii_lowercase).as_deref() {
         Some("png") => "image/png",
         Some("jpg" | "jpeg") => "image/jpeg",

@@ -50,6 +50,28 @@ pub(crate) fn modal_allows(app: &PhotocraftApp, id: &str) -> bool {
     (app.ui.dialogs.is_empty() && app.ui.layers_panel_dialog.is_none() && app.discard.is_none()) || crate::shortcuts::NAV_COMMANDS.contains(&id)
 }
 
+/// EMBED-DESIGN-CLOUD B4 — run a command on the host bridge's behalf: the
+/// discard guard applies, but the command palette's recents are NOT noted
+/// (a bridge-driven save is not a user-invoked command).
+pub fn invoke_from_host(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Value) -> Result<Value, String> {
+    if app.automation_input
+        && let Some(authorize) = app.services.automation_command.as_ref()
+    {
+        authorize(id, &params)?;
+    }
+    if crate::discard_ui::intercept(app, id, &params) {
+        return Ok(Value::Null);
+    }
+    invoke_unguarded(app, ctx, id, params)
+}
+
+/// EMBED-DESIGN-CLOUD B4 — may a host-driven command run right now? The
+/// same gate the menu bar uses (`modal_allows`): dialogs, unsaved-changes
+/// prompts, Camera Raw and a pending crop defer it.
+pub fn host_command_allowed(app: &PhotocraftApp, id: &str) -> bool {
+    modal_allows(app, id)
+}
+
 /// Top-level menus in Photoshop order.
 pub const TOP_MENUS: [&str; 10] = ["File", "Edit", "Image", "Layer", "Type", "Select", "Filter", "View", "Window", "Help"];
 

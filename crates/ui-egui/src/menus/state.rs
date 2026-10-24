@@ -61,6 +61,12 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         "file.open" | "file.exit" | "file.clearRecent" | "file.removeRecent" | "help.about" | "help.systemInfo" | "edit.search" => true,
         i if i.starts_with("file.openRecent.") => true,
         i if i.starts_with(DOCUMENT_ITEM) => true,
+        // EMBED-DESIGN-CLOUD B3 — the cloud-library menu entries (present
+        // only while a cloud library is connected, which the dynamic
+        // insertion already guarantees; the belt-and-braces gate keeps them
+        // honest if anything else ever lists the ids).
+        crate::cloud::SAVE_TO_LIBRARY => app.services.cloud.is_some() && app.session.active().is_some(),
+        i if i.starts_with(crate::cloud::LIBRARY_ITEM) => app.services.cloud.is_some(),
         i if crate::links::url_for(i).is_some() => true,
         i if i.starts_with("window.theme.") => true,
         // Interface brightness works with or without a document, as in Photoshop.
