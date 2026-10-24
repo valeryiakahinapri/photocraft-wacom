@@ -5,6 +5,17 @@ Durable truth = `agent-meta` branch on github + /home/sync copies + this file.
 Feature branch: `feature/right-panel-collapse` (tip bc1a67c3) — merged with main's
 bridge commit + 4 session-3 commits (mockup refinement F/G, menus::invoke dispatch fix).
 
+## Parallel lane status — the GenEditor embed (session 4, separate scope)
+
+The embed lane (cloud library + PHASE-B doc↔asset identity) SHIPPED and lives
+ELSEWHERE — do not conflate with the panel/PIN scope above: wacom
+`web-cloud-library-rebase` @ b3b2e5b (rebased onto main 7d6f9df9; the engine bridge
+and the embed host_bridge coexist — see kb/browser-js-bridge.md), GenEditor-ui
+`feature/photocraft-embed` @ e925ec2, webhost main @ afed653 (its HANDOFF.md = the
+embed lane's own session-8 start point, incl. the warm-cache hardlink build recipe
+that rides YOUR finished target dirs — kb/wasm-and-targets.md session-4 additions).
+Coordination rule unchanged: read-only on each other's trees, git is the shared bus.
+
 ## Bootstrap (≈2 min) + build-lane restore (≈5 min if /home/z was recycled)
 
 1. `bash /home/sync/photocraft-agent/agent/scripts/zai-bootstrap.sh` (clones both repos,
