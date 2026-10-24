@@ -337,3 +337,85 @@ Round 4 (sub-agent review, worklog `1-r4-review`) — verdicts landed:
   `ui.set dockWidth` mid-animation is consumed-and-lost (accepted; automation + a 0.2s window
   is pathological); module docs updated.
 - The unused "Hide Dock"/"Show Dock" catalog rows stay (harmless; coverage is a report).
+
+---
+
+## REV5 — reconciling the parallel implementation (main `c8105921` vs this branch)
+
+2026-10-24, after the live agent landed `c8105921 Refine rounded dock and panel interactions`
+on main — an independent implementation of the SAME mockup grammar (fold + flyouts + top
+toggle), built in the codespace in parallel with REV4's implementation on this branch.
+
+### Their side (mechanism inventory)
+
+- `panels.dock_expanded` (serde default yes): the fold state, deliberately INDEPENDENT of
+  `panels.dock` — "the dock can fold without changing Shift+Tab visibility" (their test).
+  Rationale: the fold is a persistent user preference; Tab/⇧Tab visibility is a session
+  toggle; a fold driven by `p.dock` would be undone by a Tab round-trip.
+- Animation: `animate_bool_with_time(id, expanded, 0.22)` × remembered width
+  (`dock_last_width_id` temp) fed as `exact_size` to the same `Panel::right` — on BOTH the
+  legacy column and `panel_docking::show` (which now receives `(width, transitioning,
+  requested)`; its early `width <= 0.5` return happens BEFORE `docking_reveal.take()`, so
+  reveal requests survive a fold).
+- Rail: 44/52px sizes, `t.canvas` island fill + `outer_margin(4)`, top chevron toggle
+  (`chevrons-right/left`, "Collapse/Expand Panel Dock") + separator, icon flyout state in
+  ctx data (`right-dock-flyout` temp Group), flyout = `Area::fixed_pos` anchored per-icon,
+  300px viewport-clamped, X + Escape + outside-click close.
+- New command `window.toggle.dockExpanded` (registered in shell_commands; handled as an
+  early-return arm in `menus::invoke_unguarded`), `checked()` row, `state.rs` field +
+  `Default` + deserialization test, two dock_tests additions, toolbar width tween
+  (`animate_value_with_time` 0.22 + `t.canvas` + +8 pad) + tween-aware test steps
+  (`with_step_dt(1/60)`, `run_steps(16)`), canvas/tab_strip/theme/prefs/widgets visual
+  polish (t.canvas tab fills, radius_sm, dropped separators), kb + SKILL + ui-design docs.
+- GAPs in their commit: the two new "Collapse/Expand Panel Dock" strings have NO i18n
+  catalog rows; the hand-rolled width tween is the P0-1 hazard class REV4 rejected; the
+  flyout is inline in panels.rs; no browser E2E verification (kittests on codespace are
+  the parked blocker).
+
+### This branch's side (already E2E-verified)
+
+- `Panel::show_collapsible` on the legacy column (cubic-out, store-skip while animating,
+  RTL-aware, honors Enable-Animations) with gesture write-back through commands; rail
+  extracted to `panel_rail.rs`; peek = per-group resizable `egui::Window`, session-local
+  `PanelPeek` (never saved), X/Escape/outside/rail-rect lifecycle; ALL UI-level ids dispatch
+  through `menus::invoke` (bc1a67c3 — the E2E-caught dispatch bug); scoped deviation: the
+  customized-docking column toggles instantly (reveal/dockWidth consumption ordering, see
+  the REV4 P0-2 note).
+
+### Decision (D1–D9)
+
+- **D1 — base structure: this branch.** Keep `show_collapsible` + `panel_rail.rs` + peek +
+  `menus::invoke` routing. REJECT the hand-rolled width tween (exact_size glide writes
+  garbage into `PanelState` mid-flight — the P0-1 class; `dock_last_width_id` patches the
+  symptom, not the class) and the inline flyout. The customized column keeps its instant
+  toggle this round (scoped REV4 deviation stands; their early-return-before-reveal trick
+  is noted for the follow-up that moves reveal consumption into the draw closure).
+- **D2 — ADOPT the `dock_expanded` split.** The fold becomes its own persisted preference,
+  independent of Tab/⇧Tab (`expanded = (p.dock && p.dock_expanded) || tabbed_in`); the top
+  rail button and gesture write-back dispatch `window.toggle.dockExpanded` when the fold
+  flips; View>Dock keeps `p.dock`; the fold survives Tab round-trips and menu checkmarks
+  stay honest. Their deserialization + fold-state tests port as-is.
+- **D3 — ADOPT their rail visuals**: 44/52 sizes, `t.canvas` fill, `outer_margin(4)`,
+  chevrons-right/left top toggle + separator + "Collapse/Expand Panel Dock" labels
+  (dispatching `window.toggle.dockExpanded`, clearing any open peek).
+- **D4 — ADOPT the toolbar width tween** + its test timing changes.
+- **D5 — ADOPT canvas/tab_strip/theme/prefs/widgets + panel_docking VISUAL polish**
+  (`t.canvas` fills, radius_sm, dropped separators); NOT their transition-phase/exact_size
+  machinery (superseded by D1).
+- **D6 — tests**: port their two dock_tests additions (adapted: fold assertions read
+  `app.ui.panels.dock_expanded`; the folded-rail flyout test asserts `app.ui.panel_peek`,
+  not their ctx temp id) + toolbar timing; keep panel_rail_tests.
+- **D7 — docs**: adopt their kb/SKILL/ui-design.md, amended to the reconciled mechanism.
+- **D8 — i18n**: add the two new keys to every catalog (their commit shipped none).
+- **D9 — shell_commands**: keep their `window.toggle.dockExpanded` registration; implement
+  the arm in the `menus::invoke` match (not their early-return special case) + `checked()`.
+
+Not addressed (pre-existing in BOTH implementations): a rail icon click while the column is
+⇧Tab-hidden (`p.dock=false`) reveals a group nobody can see — the reveal path predates the
+rail; left for a follow-up with its own tests.
+
+Merge mechanics: `git merge c8105921` into `feature/right-panel-collapse`; conflicts resolved
+per D1–D9 (panels.rs/panel_docking.rs structurally mine + their visual hunks; state.rs,
+shell_commands.rs, canvas.rs, tab_strip.rs, theme.rs, prefs_ui.rs, widgets.rs, docs mostly
+theirs); the merge commit message records the reconciliation. After build: full browser E2E
+re-run (toggle → flyout → re-click → focus-loss → expand) against the NEW command.
