@@ -274,3 +274,56 @@ you need to expand or change) to fully support cloud library."
   backoff) — don't plan on a fresh box.
 - The cloud.rs native unit tests never completed (both planes got killed /
   disk-tight) — the known gap, first item in the webhost HANDOFF.
+
+---
+Task ID: session-3
+Agent: main (orchestrating)
+Task: mockup refinement, local-lane repair, review hub + annotakit bake, PIN-in-webgpu investigation
+
+Work Log:
+- Container fully recycled; rebuilt env from /home/sync + PolarFS (toolchain 569M, cache 628M).
+- Local lane rebuild hit a corruption cascade: traced to (a) python tarfile filter='data'
+  NOT preserving mtimes in stream mode (registry sources got "today" mtimes -> cargo sees
+  every dep as changed), and (b) my first remap byte-replacing paths inside BINARY rmeta
+  (length shift -> rustc ICE bytes[len] == STR_SENTINEL). Fix: gnu-extract-cache.py
+  (zst->plain tar->GNU tar, sentinel-verified) + fingerprint-only remap + invoked.timestamp
+  touch + fix-toolchain-mtimes.py. Lane converged: build rc=0, inner loop ~80s.
+- Merged main (7d6f9df9 bridge commit) into feature/right-panel-collapse; resolved
+  panels.rs (extraction wins) + js_bridge.rs (main's version).
+- modern-canvas-studio mockup studied (Shell.tsx): constant icon rail, direct toggle,
+  flyout grammar. REV4 design + review round (1-r4-review): P0 caught — my hand-rolled
+  width animation would corrupt egui's persisted dock width; replaced with the platform's
+  Panel::show_collapsible (cubic-out clip-reveal, drag_to_open(false), gesture write-back
+  through window.toggle.dock/window.togglePanels). Customized column: instant toggle kept
+  (documented deviation — its prologue eats reveal/dockWidth if called while collapsed).
+- Implemented F (icon rail, popover/labels/set_group_shown removed, peek toggle-on-reclick)
+  + G (show_collapsible) + full test rewrite (incl. the stale peek_id assert bug the review
+  found empirically). Committed 88875cde, 06c6bcb4.
+- Baked the web bundle; agent-browser (CDP, trusted events) E2E caught "unknown command
+  'window.toggle.dock'" in the status bar: UI-level ids execute ONLY via menus::invoke —
+  app.run reaches the engine which catalogs them. The repo's own dock_tests always knew.
+  Fixed production + tests (bc1a67c3), re-baked, re-verified: dock collapse, peek flyout,
+  re-click close, outside-click focus loss — all pixel-diff-proven (e2e2-*.png).
+- Review hub built in /home/z/my-project: landing page, /photocraft static bake (with
+  <base href> — the trailing-slash 404 trap), /storybook annotakit bake (postcss
+  neutralized for vite; eslint ignores for public/). SB10 gotcha: toolbar only renders
+  on the STORY route.
+- PIN-in-webgpu investigated (2-pin-webgpu-research, full report in kb): AccessKit-on-web
+  = verified dead end in this stack (eframe 0.36 discards the tree, accesskit_winit is a
+  null adapter on wasm). WORKING TODAY: in-canvas mount (web.rs boots by element id —
+  story builds #photocraft_canvas + dynamic-imports the hashed module, remount ADOPTS the
+  live canvas; an iframe story can never work — pointer events don't bubble out). E2E:
+  altB -> drag -> composer -> "Pin it" -> region thread #1 on the live wgpu UI, persisted
+  to the static localStorage store. Route B (element pins via PhotoCraft.ui rects bridge +
+  testid overlay) designed as the next slice.
+- GitHub mirror deliberately NOT armed (baked gh.json is world-readable; needs an
+  Issues-scoped fine-grained PAT from the owner).
+
+Stage Summary:
+- Feature branch: merged main + 3 refinement commits, E2E-proven live; kittests still
+  compile-pending + execution-blocked (codespace RAM wall, unchanged).
+- Review hub: /, /photocraft, /storybook all 200 + browser-verified; regeneration script
+  bake-review-hub.sh on agent-meta; sources mirrored to agent/review-hub/.
+- Durable docs: kb/review-hub-and-pins.md + kb/pin-webgpu-report.md; HANDOFF rewritten;
+  PLAN phase 1.7 appended; scripts gnu-extract-cache.py, fix-toolchain-mtimes.py,
+  restore-local-lane.py (fixed), trunk-bundle.py (color-env fix), noop-build.py.

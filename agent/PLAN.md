@@ -105,3 +105,20 @@ The right-panel collapse UX the user asked for, used as the fan-out stress test:
 - Upstream moves fast (67 commits backlog pushed in one day): keep fork merges frequent
   and small; rebases of custom work get harder the longer we drift.
 - Gitlab mirror: WAF blocks ~1/3 of HK-IP requests (retry pattern, background push).
+
+### Phase 1.7 — mockup refinement + review hub (DONE, 2026-10-24 session 3)
+
+The owner shipped the modern-canvas-studio mockup = the panel-behavior vision. REV4
+(design doc): constant icon rail in both states (rotated labels + popover dropped),
+direct dock toggle, re-click closes the peek, egui `Panel::show_collapsible` slide
+(the review caught my hand-rolled glide corrupting the persisted dock width), the
+customized-docking column keeps its instant toggle (documented deviation).
+Live E2E on the baked build caught the `menus::invoke` dispatch bug (app.run →
+engine → "unknown command"), fixed in production + tests; the feature is now
+browser-proven (toggle/peek/re-click/focus-loss all verified by pixel diff).
+Deliverables on the branch: 88875cde (icon rail), 06c6bcb4 (show_collapsible),
+bc1a67c3 (dispatch fix), fa187d81 (merge of main's bridge commit).
+New capability: the review hub (see kb/review-hub-and-pins.md) — /photocraft bake +
+annotakit /storybook with the app mounted IN the canvas doc; region pins E2E-proven
+against the wgpu UI; Route B (element pins via the bridge overlay) designed and
+scoped as the next slice. AccessKit-on-web verified dead (eframe discards the tree).

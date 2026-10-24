@@ -103,11 +103,39 @@ Z.ai sandbox (control plane)                GH Codespace (build plane)
   agent's in-file lto=false — verified, so its Cargo.toml hack stays uncommitted).
 - **Trunk CLI**: breaks with `NO_COLOR=1` (wants true/false). `trunk build` dev mode still
   builds the wasm-release profile (data-cargo-profile) but skips wasm-opt — good.
-- **Browser E2E lies**: agent-browser mouse events never trigger egui release-clicks;
-  synthetic PointerEvents ignored (untrusted); accesskit DOM empty; VLM confirms whatever
-  the prompt describes — md5/pixel-diff screenshots first. kittest + PNG fixtures = truth
-  (agent/kb/web-e2e-tooling.md).
+- **Browser E2E (corrected session 3)**: agent-browser (vercel-labs CLI, CDP Playwright)
+  clicks DO drive the real egui UI — session 3 flipped the rail toggle, opened peeks,
+  and ran a region-drag with them; session-2's "clicks never work" finding was that
+  session's harness, not this CLI. Still true: JS-dispatched synthetic PointerEvents are
+  ignored (untrusted); accesskit DOM is empty ON WEB (eframe discards the tree — kb);
+  VLM confirms whatever the prompt describes — pixel-diff first, VLM second with neutral
+  prompts. The E2E loop (bake -> CDP clicks -> pixel diff + status-bar read) is the only
+  execution proof for UI features until the kittest lane unblocks.
 - **js bridge**: `window.PhotoCraft` ({id,params}/{steps} envelope) drives an INDEPENDENT
   headless session, not the visible UI.
 - Python `sys._exit` does not exist in this container — daemonize with `os._exit`.
 - functools.partial subclassing crashes http.server — subclass the handler directly.
+
+## Session 3 additions (2026-10-24)
+- **python tarfile filter='data' does NOT preserve mtimes in stream mode** — cargo reads
+  the write-time mtimes as "every source changed" (full dep rebuild). Extract caches via
+  zst -> plain tar -> GNU tar -xf ONLY (scripts/gnu-extract-cache.py, sentinel-verified).
+- **Never string-replace paths inside target/ BINARY artifacts** — rmeta embeds absolute
+  paths; a length-changing shift corrupts them (rustc ICE STR_SENTINEL). Remap ONLY
+  */.fingerprint/* text files, then touch every invoked.timestamp.
+- **UI-level commands execute ONLY through menus::invoke(app, &ctx, id, params)** —
+  app.run reaches the engine, which CATALOGS window.toggle.*/window.panel.peek but
+  cannot run them ("unknown command" lands in app.ui.status). Compile gates never
+  catch dispatch-path bugs; the baked-build E2E does.
+- **eframe/egui web apps can boot in a foreign document** when web.rs targets a canvas
+  by element id: provide #photocraft_canvas + #photocraft_loading, dynamic-import the
+  hashed module, adopt the live canvas on remount (never double-boot winit). This is
+  what makes DOM-overlay tooling (annotakit) coexist with the wgpu canvas.
+- **Sub-agents run builds if their task smells like it** — a "review-only" prompt still
+  had the agent run noop-build.py, racing my toolchain re-extract (rustc exit 127,
+  libLLVM unreadable). Forbid builds explicitly in research prompts.
+- **Static-bake traps** (kb/review-hub-and-pins.md): trailing-slash relative-asset 404s
+  (inject <base href>), vite vs Tailwind postcss (neutralize via viteFinal), SB10 shows
+  no addon toolbar on the root route (navigate to the story route), eslint OOMs on
+  public/ bundles (ignore them), next.config edits need a dev-server restart.
+- Trunk aborts rc=2 on NO_COLOR=1 AND CLICOLOR_FORCE=0 (strip all color env vars).
