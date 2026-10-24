@@ -11,6 +11,25 @@ use crate::state::{ColorPanelSliderMode, Tool};
 use crate::theme::{self, Tokens};
 use crate::{PhotocraftApp, icons, widgets};
 
+fn chrome_panel_radius(t: &Tokens) -> CornerRadius {
+    let radius = if t.pro { 10.0 } else { t.radius_lg };
+    CornerRadius::same(radius.round().clamp(0.0, 255.0) as u8)
+}
+
+#[cfg(test)]
+mod chrome_surface_tests {
+    use super::chrome_panel_radius;
+    use crate::theme::{ThemeKind, Tokens};
+    use egui::CornerRadius;
+
+    #[test]
+    fn pro_chrome_uses_moderate_rounding_without_changing_classic() {
+        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Pro)), CornerRadius::same(10));
+        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Classic)), CornerRadius::same(0));
+        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Studio)), CornerRadius::same(12));
+    }
+}
+
 // ----------------------------------------------------------------------------- toolbar
 
 /// Tool groups separated by hairlines, Photoshop order.
@@ -100,7 +119,12 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     crate::direction::start_panel("toolbar")
         .resizable(false)
         .exact_size(w)
-        .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(m, 8)))
+        .frame(
+            egui::Frame::NONE
+                .fill(t.chrome)
+                .corner_radius(chrome_panel_radius(&t))
+                .inner_margin(egui::Margin::symmetric(m, 8)),
+        )
         .show(ui, |ui| {
             // Toolbar width is a user preference, not a Pro-only feature.
             // Keep the same hit target in every theme (including RTL layouts).
@@ -1803,7 +1827,12 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         crate::direction::end_panel("rail")
             .resizable(false)
             .exact_size(rw)
-            .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(4, 8)))
+            .frame(
+                egui::Frame::NONE
+                    .fill(t.chrome)
+                    .corner_radius(chrome_panel_radius(&t))
+                    .inner_margin(egui::Margin::symmetric(4, 8)),
+            )
             .show(ui, |ui| {
                 // The separator is on the canvas side.
                 let r = ui.max_rect();
@@ -1889,10 +1918,17 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Pan
     if let Some(w) = ui.ctx().data_mut(|d| d.remove_temp::<f32>(dock_width_id())) {
         panel = panel.exact_size(w);
     }
-    panel.frame(egui::Frame::NONE.fill(t.dock).inner_margin(egui::Margin::same(margin))).show(ui, |ui| {
-        // Groups keep their heights whatever they show (#88): see `dock`.
-        crate::dock::show(app, ui, &shown, dock_body);
-    });
+    panel
+        .frame(
+            egui::Frame::NONE
+                .fill(t.dock)
+                .corner_radius(chrome_panel_radius(t))
+                .inner_margin(egui::Margin::same(margin)),
+        )
+        .show(ui, |ui| {
+            // Groups keep their heights whatever they show (#88): see `dock`.
+            crate::dock::show(app, ui, &shown, dock_body);
+        });
 }
 
 /// One dock group's tab content; `dock` bounds it and scrolls it when it's taller.
@@ -7672,3 +7708,4 @@ mod sampler_readout_tests {
         assert_eq!(sampler_readouts(&mut app).len(), 2, "so does a new sampler");
     }
 }
+
