@@ -1,0 +1,88 @@
+# Worklog — photocraft-wacom web adoption (Z.ai orchestrator)
+
+Continuation of `log/devlog.md` (codespace-side, upstream format). This file is the
+Z.ai-session worklog. Canonical durable copy: `agent/worklog.md` on the `agent-meta`
+branch of valeryiakahinapri/photocraft-wacom.
+
+---
+
+## Session 1 — 2026-10-24 (Z.ai sandbox, session web-d9a93819)
+
+### Environment setup & situation
+
+- Local Z-container recon: 2 vCPU, 4.1 GiB RAM, 9.9G disk (9.3G free), no swap; gh/rust/ssh
+  missing at boot; git/node/bun/python3/gcc present. `/home/z/my-project` = bare bootstrap
+  (Initial commit, no package.json). `/home/sync` empty (fresh sandbox).
+- Cloned `photocraft-wacom` → `/home/z/photocraft-wacom` (126M, deliberately OUTSIDE the
+  watchdog path `/home/z/my-project` — watchdog force-switches my-project to main ~every 20s).
+- Cloned `zai-codespaces` → `/home/z/zai-codespaces`; read its AGENTS.md (the kit manual).
+- Ran `kit/bootstrap-local.sh` with `ZAI_ROOT=/home/z/zai-codespaces` — installs user-space
+  gh 2.103.2 + OpenSSH 10.0, rebuilds gh profiles from `.env`.
+- **Patched the kit for a 3rd account**: `photocraft` → valeryiakahinapri (work-repo PAT).
+  Changes: `.env` (GH_PAT_PHOTOCRAFT, GH_ACCOUNT_PHOTOCRAFT, CS_NAME_PHOTOCRAFT),
+  `kit/lib.sh` (acct_pat / acct_login / default_cs cases), `kit/cs` (auth loop).
+  Usage: `ZAI_ROOT=/home/z/zai-codespaces CS_ACCOUNT=photocraft bash kit/cs <cmd>`.
+- **DECISION — environment strategy** (see agent/zai-skill/SKILL.md for the full rationale):
+  - **Codespace `miniature-waddle-gx65q95446v4cv4` = build/test plane.** All cargo/trunk/
+    wasm work happens there via `cs exec` script-mode heredocs. It already has: Rust 1.99.1
+    stable + wasm target + Trunk 0.21.14, apt libs, warm target/ (debug 9.8G), toolchain
+    backup tarball (569M at /workspaces/.photocraft-toolchain-backup).
+  - **Local sandbox = control plane.** Reads/greps/patches/docs/orchestration on the local
+    clone; NO local Rust toolchain (2 vCPU / 4G / 9.3G free cannot hold a ~10G target dir;
+    recycle wipes it — not worth it).
+  - **Sync medium = git** (push branches locally → codespace worktree pulls) + `cs put/get`
+    for one-offs.
+  - **Durable docs = `agent-meta` branch** on the work repo (github) + /home/sync copies.
+    Main stays clean for upstream tracking.
+
+### Codespace recon (read-only; live copilot agent ACTIVE)
+
+- Codespace: basicLinux32gb (2 core / 8G / 32G), created 2026-10-23T20:47Z, idle timeout 30m,
+  state Available. `/workspaces` 32G at 82% (5.5G free) — target/debug 9.8G is the hog.
+- Live agent WIP (UNCOMMITTED at snapshot time — mirrored to `wip/2026-10-24T00:22Z/`):
+  - New: `apps/photocraft-web/src/js_bridge.rs` (576 lines — host-facing `globalThis.PhotoCraft`
+    JS API, `PhotoCraftBridge` wasm-bindgen export), `apps/photocraft-web/tests/js-bridge.mjs`
+    (Node oracle harness vs CLI), plus earlier committed `preset_bridge.rs` / `indexed_presets.rs`.
+  - Modified: photocraft-web Cargo.toml/main.rs/web.rs, ui-egui panels.rs, docs (202-line diff).
+  - A `cargo build --locked --target wasm32-unknown-unknown --profile wasm-release -p
+    photocraft-web --features heif` was RUNNING during recon — do NOT touch its tree or
+    take cargo locks until the user confirms the live agent is done.
+- `.agents/skills/photocraft-rust-toolchain/` (SKILL.md + 3 kb + backup/restore scripts)
+  exists only in the codespace working tree (gitignored upstream) — mirrored to the
+  agent-meta branch now.
+- The 67 commits the user just pushed = upstream merges (codespace backlog), NOT the
+  agent docs; `.agents/`, `log/` remain untracked in the codespace tree.
+
+### Ramp-up reading done
+
+- Work-repo AGENTS.md (golden rules: never crash, no unsafe except tablet crate, everything
+  is a command, never break wasm — L0–L6 must `cargo check --target wasm32-unknown-unknown`,
+  tests are the gate, layering enforced by `cargo xtask layers`).
+- docs/development.md (prereqs: Rust 1.95+, apt libs list; web build section: Trunk,
+  `wasm-release` profile via `data-cargo-profile`, package.sh 24MiB per-file gate,
+  web-boot part-splitting, `?webgl`/`?cpu` flags, web-vs-desktop differences).
+- apps/photocraft-web: Cargo.toml (wasm32-only deps: eframe wgpu+accesskit, rfd, wasm-bindgen,
+  web-sys with IndexedDB features), Trunk.toml (dist ../../dist/web, port 8765), index.html
+  (no hand-written JS; trunk-injected loader), main.rs (thin; WebShell in web.rs).
+- Toolchain SKILL.md + kb: wasm-and-targets (Trunk profile gotcha, LTO override env vars,
+  wasm-opt 10-min kill), codespaces-persistence (backup contents/restore), browser-js-bridge
+  (bridge owns independent headless Session, Uint8Array not JSON round-trips, Node oracle).
+
+### Artifacts produced this session
+
+- `agent-meta` branch on the work repo: `.agents/` mirror, `log/devlog.md` mirror,
+  `agent/{PLAN.md,HANDOFF.md,worklog.md,zai-skill/}`, `agent/scripts/zai-bootstrap.sh`,
+  `wip/2026-10-24T00:22Z/` snapshot.
+- Kit patch (3rd account) lives in `/home/z/zai-codespaces` — also needs pushing to the
+  zai-codespaces repo remote (TODO if ownership permits; it's the user's infra repo — left
+  uncommitted locally for now, patch is re-appliable from agent/scripts/zai-bootstrap.sh).
+
+### Still open
+
+- Codespace disk pressure (82%): prune target/debug (~9.8G) once the live agent is idle and
+  the user confirms ownership. Not while builds run.
+- Gitlab second remote for the work repo (PAT provided; project needs creating).
+- Clarify with user: what IS the target web project (framework, hosting, embedding model),
+  fork/branch strategy for custom app code, and when I get codespace ownership.
+- Watch the codespace 12h hard cap (created 20:47Z → ~08:47Z); `cs start` resurrects with
+  /workspaces intact.

@@ -1,0 +1,202 @@
+diff --git a/apps/photocraft-web/Cargo.toml b/apps/photocraft-web/Cargo.toml
+index 279d13b4..59449b1b 100644
+--- a/apps/photocraft-web/Cargo.toml
++++ b/apps/photocraft-web/Cargo.toml
+@@ -26,6 +26,7 @@ photocraft-doc = { workspace = true }
+ photocraft-ui-egui = { workspace = true }
+ egui = { workspace = true }
+ log = { workspace = true }
++serde_json = { workspace = true }
+ 
+ [target.'cfg(target_arch = "wasm32")'.dependencies]
+ # `wgpu` pulls egui-wgpu's defaults: WebGPU plus the WebGL2 fallback.
+@@ -37,6 +38,5 @@ js-sys = "0.3"
+ web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "DomRect", "HtmlAnchorElement", "Blob", "BlobPropertyBag", "Url", "Location", "CssStyleDeclaration", "Storage", "Event", "EventTarget", "MouseEvent", "PointerEvent", "BeforeUnloadEvent", "AbortController", "AbortSignal", "DomException", "Response", "IdbFactory", "IdbOpenDbRequest", "IdbDatabase", "IdbRequest", "IdbTransaction", "IdbTransactionMode", "IdbObjectStore", "IdbCursor", "IdbCursorWithValue", "RequestInit", "RequestMode", "Navigator"] }
+ 
+ [dev-dependencies]
+-serde_json = { workspace = true }
+ photocraft-paint = { workspace = true }
+ photocraft-psd = { workspace = true }
+diff --git a/apps/photocraft-web/src/main.rs b/apps/photocraft-web/src/main.rs
+index 0802a02e..625264d5 100644
+--- a/apps/photocraft-web/src/main.rs
++++ b/apps/photocraft-web/src/main.rs
+@@ -19,6 +19,9 @@
+ #[cfg(any(target_arch = "wasm32", test))]
+ mod preset_bridge;
+ 
++#[cfg(any(target_arch = "wasm32", test))]
++mod js_bridge;
++
+ #[cfg(target_arch = "wasm32")]
+ mod indexed_presets;
+ 
+diff --git a/apps/photocraft-web/src/web.rs b/apps/photocraft-web/src/web.rs
+index 87e6eaf2..dc4e7816 100644
+--- a/apps/photocraft-web/src/web.rs
++++ b/apps/photocraft-web/src/web.rs
+@@ -46,6 +46,9 @@ type Served = Arc<Mutex<ServedFonts>>;
+ 
+ pub fn start() {
+     eframe::WebLogger::init(log::LevelFilter::Info).ok();
++    if let Err(error) = crate::js_bridge::install_global() {
++        log::error!("could not install the PhotoCraft JavaScript API: {error:?}");
++    }
+     wasm_bindgen_futures::spawn_local(async {
+         let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+             log::error!("no document");
+diff --git a/crates/ui-egui/src/panels.rs b/crates/ui-egui/src/panels.rs
+index 162cf091..d3cd4b21 100644
+--- a/crates/ui-egui/src/panels.rs
++++ b/crates/ui-egui/src/panels.rs
+@@ -11,6 +11,25 @@ use crate::state::{ColorPanelSliderMode, Tool};
+ use crate::theme::{self, Tokens};
+ use crate::{PhotocraftApp, icons, widgets};
+ 
++fn chrome_panel_radius(t: &Tokens) -> CornerRadius {
++    let radius = if t.pro { 10.0 } else { t.radius_lg };
++    CornerRadius::same(radius.round().clamp(0.0, 255.0) as u8)
++}
++
++#[cfg(test)]
++mod chrome_surface_tests {
++    use super::chrome_panel_radius;
++    use crate::theme::{ThemeKind, Tokens};
++    use egui::CornerRadius;
++
++    #[test]
++    fn pro_chrome_uses_moderate_rounding_without_changing_classic() {
++        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Pro)), CornerRadius::same(10));
++        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Classic)), CornerRadius::same(0));
++        assert_eq!(chrome_panel_radius(&Tokens::for_kind(ThemeKind::Studio)), CornerRadius::same(12));
++    }
++}
++
+ // ----------------------------------------------------------------------------- toolbar
+ 
+ /// Tool groups separated by hairlines, Photoshop order.
+@@ -99,8 +118,14 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+     let w = if double { w1 + bx + 2.0 } else { w1 };
+     crate::direction::start_panel("toolbar")
+         .resizable(false)
+-        .exact_size(w)
+-        .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(m, 8)))
++        .exact_size(w + 8.0)
++        .frame(
++            egui::Frame::NONE
++                .fill(t.chrome)
++                .corner_radius(chrome_panel_radius(&t))
++                .outer_margin(egui::Margin::same(4))
++                .inner_margin(egui::Margin::symmetric(m, 8)),
++        )
+         .show(ui, |ui| {
+             // Toolbar width is a user preference, not a Pro-only feature.
+             // Keep the same hit target in every theme (including RTL layouts).
+@@ -1802,8 +1827,14 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+         let (rw, rb) = if t.pro { (36.0, 28.0) } else { (44.0, 32.0) };
+         crate::direction::end_panel("rail")
+             .resizable(false)
+-            .exact_size(rw)
+-            .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(4, 8)))
++            .exact_size(rw + 8.0)
++            .frame(
++                egui::Frame::NONE
++                    .fill(t.chrome)
++                    .corner_radius(chrome_panel_radius(&t))
++                    .outer_margin(egui::Margin::same(4))
++                    .inner_margin(egui::Margin::symmetric(4, 4)),
++            )
+             .show(ui, |ui| {
+                 // The separator is on the canvas side.
+                 let r = ui.max_rect();
+@@ -1881,7 +1912,7 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Pan
+     if shown.is_empty() {
+         return;
+     }
+-    let margin = if t.pro { 2 } else { 8 };
++    let margin: i8 = if t.pro { 2 } else { 8 };
+     let mut panel = crate::direction::end_panel("dock")
+         .resizable(true)
+         .default_size(if t.pro { 290.0 } else { 300.0 })
+@@ -1889,10 +1920,18 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Pan
+     if let Some(w) = ui.ctx().data_mut(|d| d.remove_temp::<f32>(dock_width_id())) {
+         panel = panel.exact_size(w);
+     }
+-    panel.frame(egui::Frame::NONE.fill(t.dock).inner_margin(egui::Margin::same(margin))).show(ui, |ui| {
+-        // Groups keep their heights whatever they show (#88): see `dock`.
+-        crate::dock::show(app, ui, &shown, dock_body);
+-    });
++    panel
++        .frame(
++            egui::Frame::NONE
++                .fill(t.dock)
++                .corner_radius(chrome_panel_radius(t))
++                .outer_margin(egui::Margin::same(4))
++                .inner_margin(egui::Margin::same(margin.saturating_sub(4))),
++        )
++        .show(ui, |ui| {
++            // Groups keep their heights whatever they show (#88): see `dock`.
++            crate::dock::show(app, ui, &shown, dock_body);
++        });
+ }
+ 
+ /// One dock group's tab content; `dock` bounds it and scrolls it when it's taller.
+diff --git a/docs/development.md b/docs/development.md
+index 40b044fd..4b690bd1 100644
+--- a/docs/development.md
++++ b/docs/development.md
+@@ -475,6 +475,41 @@ Any static file server works for `dist/web`, for example `python3 -m http.server
+ 
+ URL flags: `?webgl` forces the WebGL2 backend, and `?cpu` forces the CPU canvas path.
+ 
++### Browser JavaScript engine API
++
++The WASM app publishes `globalThis.PhotoCraft` for host-page integrations and browser automation.
++It owns an independent headless engine session; it does not edit the document currently shown in the
++eframe canvas. Calls are synchronous and use the same engine command registry as the CLI. Global
++methods accept one object per operation; the exported `PhotoCraftBridge` class provides the same
++operations as positional methods and gives each instance isolated state. Global `open` accepts
++`{name, bytes}` and `convert` accepts `{name, bytes, format, options}`, with `bytes` as a
++`Uint8Array`; `create` accepts the JSON parameters of
++`file.new`; `execute` takes `{id, params}`; `run` takes `{steps}` in the same action formats as
++`photocraft-cli run`; `commands` returns CLI-shaped JSON rows and accepts an optional filter string
++or `{filter}` object using the CLI's case-insensitive id/label/keyword matching; `info` returns a
++JSON-compatible object; and `export` returns
++`{bytes: Uint8Array, warnings}`. `batch` takes `{inputs: [{name, bytes}], steps, format, options}`
++and returns one byte buffer per input. Export options use the CLI spellings (`quality`, `tga_bits`,
++`dpx_bits`, `tiff_compression`, `jpeg_format`, `dds_compression`, `dds_mipmaps`, `tiff_layers`).
++Errors throw in JavaScript instead of returning success-shaped fallback values.
++
++For example, after the page has loaded:
++
++```js
++PhotoCraft.create({width: 128, height: 128});
++PhotoCraft.run({steps: [["layer.new.layer", {name: "Example"}]]});
++const info = PhotoCraft.info();
++const {bytes, warnings} = PhotoCraft.export({format: "png"});
++```
++
++This is deliberately an in-memory browser surface, not a browser implementation of CLI filesystem
++paths, droplet directories, MCP, or local TCP/stdio servers. Supply files as bytes; export does not
++follow external linked-object paths. Handle returned buffers with the page's file/download APIs.
++The methods run on the browser main thread;
++large imports, commands, and exports can block rendering. Keep such calls to user-initiated work
++and prefer the desktop/CLI for long batch jobs. The Node oracle harness is
++`apps/photocraft-web/tests/js-bridge.mjs`.
++
+ To build and serve the web app entirely in Docker, run from the repository root:
+ 
+ ```sh
+diff --git a/docs/ui-design.md b/docs/ui-design.md
+index 24a30a16..d5f50824 100644
+--- a/docs/ui-design.md
++++ b/docs/ui-design.md
+@@ -19,6 +19,8 @@
+ 
+ Both Breeze themes are our own values close to Plasma's (not a copy of its colour schemes) and put text readability first: every text colour holds 4.5:1 on every surface and on hovered, pressed and selected states (`theme.rs` tests), so their secondary text, accent and status colours are darker (Light) or lighter (Dark) than Breeze's own, and the primary button is a deeper blue with white text.
+ 
++The toolbox, right dock and its icon rail use an inset rounded surface rather than a full-height square strip. Pro uses a moderate 10 px outer radius; Studio-layout themes use their `radius_lg` token, and Classic remains square. The gutter is included in the side-panel allocation so the toolbar buttons and rail keep their existing usable width.
++
+ Edit → Preferences → Interface shows an Appearance Mode selector (Sync with system, Dark, Light) above separate light and dark theme cards with PhotoCraft editor previews and radio choices. Auto is opt-in and follows the operating system while the app is running. On Linux it reads the desktop portal once and then listens for its `SettingChanged` signal (no polling, and the UI repaints only when the value changes); `gsettings` runs at most once at start-up, by absolute path, when the portal gives no answer. A missing system appearance falls back to Dark. New installs keep Photoshop's default: Dark mode with Pro Medium (Pro Light is the saved light theme). Existing saved single-theme preferences migrate to a fixed Dark or Light mode with their chosen theme. The header appearance button cycles Auto → Light → Dark; its icon shows a monitor, moon or sun for the selected mode. Window → Theme and `ui.set {"theme":"classic"}` select a theme and fix the mode to its light or dark family.
+ 
+ Window → Theme and macOS PhotoCraft → Appearance also offer Sync with system. Its checkmark follows the saved Auto mode rather than the displayed palette; choosing a manual theme selects its fixed appearance mode.
