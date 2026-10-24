@@ -34,6 +34,9 @@ pub enum ThemeKind {
     ProLightGray,
     /// Photoshop's fourth (lightest) interface brightness: #F0F0F0 panels (#2661).
     ProLight,
+    /// The modern-canvas-studio mockup look: graphite islands floating on a near-black
+    /// page, small radii (3/5/6), cool-blue accent — the owner's reference vision (REV6).
+    ModernCanvas,
     Studio,
     StudioLight,
     Classic,
@@ -55,11 +58,12 @@ pub enum ThemeKind {
 }
 
 impl ThemeKind {
-    pub const ALL: [ThemeKind; 14] = [
+    pub const ALL: [ThemeKind; 15] = [
         ThemeKind::Pro,
         ThemeKind::ProMedium,
         ThemeKind::ProLightGray,
         ThemeKind::ProLight,
+        ThemeKind::ModernCanvas,
         ThemeKind::Studio,
         ThemeKind::StudioLight,
         ThemeKind::Classic,
@@ -77,6 +81,7 @@ impl ThemeKind {
             ThemeKind::ProMedium => "Pro (Medium Gray)",
             ThemeKind::ProLightGray => "Pro (Light Gray)",
             ThemeKind::ProLight => "Pro (Light)",
+            ThemeKind::ModernCanvas => "Modern Canvas",
             ThemeKind::Studio => "Studio (Dark)",
             ThemeKind::StudioLight => "Studio (Light)",
             ThemeKind::Classic => "Classic",
@@ -97,6 +102,7 @@ impl ThemeKind {
             ThemeKind::ProMedium => "proMedium",
             ThemeKind::ProLightGray => "proLightGray",
             ThemeKind::ProLight => "proLight",
+            ThemeKind::ModernCanvas => "modernCanvas",
             ThemeKind::Studio => "studio",
             ThemeKind::StudioLight => "studioLight",
             ThemeKind::Classic => "classic",
@@ -118,6 +124,7 @@ impl ThemeKind {
         matches!(
             self,
             ThemeKind::Studio
+                | ThemeKind::ModernCanvas
                 | ThemeKind::Pro
                 | ThemeKind::ProMedium
                 | ThemeKind::SolarizedDark
@@ -140,6 +147,7 @@ impl ThemeKind {
             "promedium" | "promediumgray" | "medium" | "mediumgray" => Some(ThemeKind::ProMedium),
             "prolightgray" | "lightgray" | "mediumlight" => Some(ThemeKind::ProLightGray),
             "prolight" | "prolightest" | "lightest" | "light" => Some(ThemeKind::ProLight),
+            "moderncanvas" | "modern" | "graphite" => Some(ThemeKind::ModernCanvas),
             "studio" | "studiodark" => Some(ThemeKind::Studio),
             "studiolight" => Some(ThemeKind::StudioLight),
             "classic" | "win2000" | "retro" => Some(ThemeKind::Classic),
@@ -211,6 +219,14 @@ pub struct Tokens {
     pub caption_close_text: Color32,
     /// Dims the main window behind a modal that takes all input (Camera Raw).
     pub scrim: Color32,
+    /// The page background every island floats on (modern-canvas shell; equals the
+    /// theme's chrome tone everywhere else, where it is unused).
+    pub page: Color32,
+    /// Popover / flyout fill (the rail peek, menus): slightly lifted from `card`.
+    pub popover: Color32,
+    /// Modern-canvas shell: chrome strips become page-filled with rounded islands
+    /// (the title row stays transparent; see REV6 in the agent design docs).
+    pub islands: bool,
 }
 
 impl Tokens {
@@ -331,6 +347,56 @@ impl Tokens {
                 caption_close: Color32::from_rgb(196, 43, 28),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
+                page: Color32::from_rgb(30, 30, 30),
+                popover: Color32::from_rgb(50, 50, 50),
+                islands: false,
+            },
+            // The modern-canvas-studio mockup (REV6): graphite islands floating on a
+            // near-black page, hairline separations, small radii (3/5/6), cool-blue accent.
+            // Every field is explicit — Studio's violet accent/white primary would otherwise
+            // leak through the struct spread (audit A3).
+            ThemeKind::ModernCanvas => Tokens {
+                kind,
+                chrome: Color32::from_rgb(0x16, 0x17, 0x19),
+                canvas: Color32::from_rgb(0x06, 0x06, 0x07),
+                canvas_dot: Color32::from_rgb(0x10, 0x10, 0x11),
+                dock: Color32::from_rgb(0x16, 0x17, 0x19),
+                card: Color32::from_rgb(0x16, 0x17, 0x19),
+                card_border: Color32::from_rgb(0x22, 0x23, 0x24),
+                field: Color32::from_rgb(0x1F, 0x21, 0x23),
+                field_border: Color32::from_rgb(0x2B, 0x2C, 0x2E),
+                hover: Color32::from_rgb(0x1F, 0x21, 0x23),
+                pressed: Color32::from_rgb(0x2A, 0x2B, 0x2F),
+                text: Color32::from_rgb(0xEA, 0xEB, 0xEE),
+                text_dim: Color32::from_rgb(0x96, 0x98, 0x9D),
+                text_faint: Color32::from_rgb(0x61, 0x63, 0x68),
+                icon: Color32::from_rgb(0x96, 0x98, 0x9D),
+                accent: Color32::from_rgb(0x5E, 0x9C, 0xF6),
+                accent_soft: Color32::from_rgba_unmultiplied(0x5E, 0x9C, 0xF6, 38),
+                accent_border: Color32::from_rgba_unmultiplied(0x5E, 0x9C, 0xF6, 128),
+                accent_text: Color32::from_rgb(0xFC, 0xFC, 0xFC),
+                separator: Color32::from_rgb(0x22, 0x23, 0x24),
+                shadow: Color32::from_black_alpha(110),
+                primary_bg: Color32::from_rgb(0x5E, 0x9C, 0xF6),
+                primary_text: Color32::from_rgb(0xFC, 0xFC, 0xFC),
+                danger: Color32::from_rgb(0xEB, 0x4A, 0x49),
+                warning: Color32::from_rgb(240, 190, 90),
+                radius_sm: 3.0,
+                radius: 5.0,
+                radius_lg: 6.0,
+                bevel: false,
+                pro: false,
+                round_chips: false,
+                tab_strip: Color32::TRANSPARENT,
+                row_selected: Color32::from_rgb(0x21, 0x22, 0x23),
+                histogram_bg: Color32::from_rgb(0x06, 0x06, 0x07),
+                histogram_level: 225,
+                caption_close: Color32::from_rgb(196, 43, 28),
+                caption_close_text: Color32::WHITE,
+                scrim: Color32::from_black_alpha(110),
+                page: Color32::from_rgb(0x0B, 0x0C, 0x0E),
+                popover: Color32::from_rgb(0x1C, 0x1D, 0x20),
+                islands: true,
             },
             ThemeKind::Studio => Tokens {
                 kind,
@@ -371,6 +437,9 @@ impl Tokens {
                 caption_close: Color32::from_rgb(196, 43, 28),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
+                page: Color32::from_rgb(14, 14, 15),
+                popover: Color32::from_rgb(26, 26, 28),
+                islands: false,
             },
             ThemeKind::StudioLight => Tokens {
                 kind,
@@ -411,6 +480,9 @@ impl Tokens {
                 caption_close: Color32::from_rgb(196, 43, 28),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
+                page: Color32::from_rgb(226, 226, 230),
+                popover: Color32::from_rgb(252, 252, 253),
+                islands: false,
             },
             ThemeKind::Classic => Tokens {
                 kind,
@@ -451,6 +523,9 @@ impl Tokens {
                 caption_close: Color32::from_rgb(196, 43, 28),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
+                page: Color32::from_rgb(128, 128, 128),
+                popover: Color32::from_rgb(212, 208, 200),
+                islands: false,
             },
             // libadwaita's named colours (window, sidebar, card, view, accent, destructive) and
             // radii (6 px buttons, 12 px cards), mapped onto the Studio layout. GNOME's close
@@ -494,6 +569,9 @@ impl Tokens {
                 caption_close: Color32::from_rgb(212, 212, 216),
                 caption_close_text: Color32::from_rgb(50, 50, 54),
                 scrim: Color32::from_black_alpha(110),
+                page: Color32::from_rgb(222, 222, 223),
+                popover: Color32::WHITE,
+                islands: false,
             },
             ThemeKind::AdwaitaDark => Tokens {
                 kind,
@@ -534,6 +612,9 @@ impl Tokens {
                 caption_close: Color32::from_rgb(72, 72, 76),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
+                page: Color32::from_rgb(29, 29, 32),
+                popover: Color32::from_rgb(54, 54, 58),
+                islands: false,
             },
             // The light counterpart, adapted the same way: our own values, chosen a few levels
             // from Breeze Light's surfaces so the app blends into a Plasma desktop without being a
@@ -580,6 +661,9 @@ impl Tokens {
                 caption_close: Color32::from_rgb(213, 51, 60),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
+                page: Color32::from_rgb(219, 222, 226),
+                popover: Color32::from_rgb(236, 238, 241),
+                islands: false,
             },
             // An adaptation of KDE Plasma's Breeze Dark look on the Studio layout, not a copy: our
             // own values, chosen a few levels from Breeze Dark's surfaces (the darkest canvas, then
@@ -630,6 +714,9 @@ impl Tokens {
                 caption_close: Color32::from_rgb(213, 51, 60),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
+                page: Color32::from_rgb(17, 20, 24),
+                popover: Color32::from_rgb(29, 33, 38),
+                islands: false,
             },
             // Soft Dark: our own low-contrast palette on the Studio layout. Muted violet-grey
             // surfaces (never near-black), softened off-white text and a periwinkle accent; the
@@ -673,6 +760,9 @@ impl Tokens {
                 caption_close: Color32::from_rgb(200, 72, 86),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(100),
+                page: Color32::from_rgb(40, 40, 48),
+                popover: Color32::from_rgb(54, 54, 64),
+                islands: false,
             },
             // Soft Light: pale violet-grey surfaces, softened dark-violet text (not black) and a
             // periwinkle accent, with the same generous radii as Soft Dark.
@@ -715,6 +805,9 @@ impl Tokens {
                 caption_close: Color32::from_rgb(200, 60, 72),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(90),
+                page: Color32::from_rgb(218, 216, 224),
+                popover: Color32::from_rgb(240, 238, 243),
+                islands: false,
             },
             // Ethan Schoonover's Solarized Dark palette: base03 canvas, base02 surfaces, base0
             // body text and the Solarized blue accent. https://ethanschoonover.com/solarized/
@@ -758,13 +851,16 @@ impl Tokens {
                 caption_close: Color32::from_rgb(220, 50, 47),
                 caption_close_text: Color32::from_rgb(253, 246, 227),
                 scrim: Color32::from_black_alpha(110),
+                page: Color32::from_rgb(0, 43, 54),
+                popover: Color32::from_rgb(7, 54, 66),
+                islands: false,
             },
         }
     }
 
     /// Tokens for the active theme (stored in egui's context data by [`apply`]).
     pub fn get(ctx: &egui::Context) -> Tokens {
-        ctx.data(|d| d.get_temp::<Tokens>(egui::Id::new("photocraft-theme"))).unwrap_or_else(|| Tokens::for_kind(ThemeKind::Studio))
+        ctx.data(|d| d.get_temp::<Tokens>(egui::Id::new("photocraft-theme"))).unwrap_or_else(|| Tokens::for_kind(ThemeKind::ModernCanvas))
     }
 
     /// Thin RGB outlines; the filled bands use the same hues with subdued coverage.
@@ -1558,5 +1654,44 @@ pub mod live {
             assert_eq!(t.radius, 9.0);
             assert_eq!(unknown, vec!["nope".to_string()]);
         }
+    }
+}
+
+#[cfg(test)]
+mod modern_canvas_tests {
+    use super::*;
+
+    /// REV6: the mockup's exact tokens — the OKLCH→sRGB values from the
+    /// modern-canvas-studio stylesheet (agent scripts/oklch_tokens.py).
+    #[test]
+    fn modern_canvas_tokens_match_the_mockup() {
+        let t = Tokens::for_kind(ThemeKind::ModernCanvas);
+        assert_eq!(t.page, Color32::from_rgb(0x0B, 0x0C, 0x0E), "page background");
+        assert_eq!(t.canvas, Color32::from_rgb(0x06, 0x06, 0x07), "workspace");
+        assert_eq!(t.card, Color32::from_rgb(0x16, 0x17, 0x19), "island surface");
+        assert_eq!(t.hover, Color32::from_rgb(0x1F, 0x21, 0x23), "surface-2");
+        assert_eq!(t.pressed, Color32::from_rgb(0x2A, 0x2B, 0x2F), "surface-3");
+        assert_eq!(t.popover, Color32::from_rgb(0x1C, 0x1D, 0x20), "flyout");
+        assert_eq!(t.text, Color32::from_rgb(0xEA, 0xEB, 0xEE), "foreground");
+        assert_eq!(t.text_dim, Color32::from_rgb(0x96, 0x98, 0x9D), "muted foreground");
+        assert_eq!(t.accent, Color32::from_rgb(0x5E, 0x9C, 0xF6), "primary");
+        assert_eq!(t.primary_bg, t.accent, "primary buttons use the accent, not Studio's white");
+        assert_eq!(t.primary_text, Color32::from_rgb(0xFC, 0xFC, 0xFC));
+        assert_eq!(t.separator, Color32::from_rgb(0x22, 0x23, 0x24), "hairline");
+        assert_eq!(t.row_selected, Color32::from_rgb(0x21, 0x22, 0x23), "primary 15% over surface");
+        assert_eq!((t.radius_sm, t.radius, t.radius_lg), (3.0, 5.0, 6.0), "the mockup's small radii");
+        assert!(t.islands, "the island shell");
+        assert!(!t.pro, "Studio grammar (pill headers, non-pro status)");
+        assert!(t.dark(), "a dark theme — is_dark() must list it");
+        assert_eq!(t.tab_strip, Color32::TRANSPARENT, "islands carry their own strip bg");
+    }
+
+    /// The engine's saved ids round-trip through ThemeKind.
+    #[test]
+    fn modern_canvas_ids_round_trip() {
+        assert_eq!(ThemeKind::ModernCanvas.id(), "modernCanvas");
+        assert_eq!(ThemeKind::from_name("modernCanvas"), Some(ThemeKind::ModernCanvas));
+        assert_eq!(ThemeKind::from_name("Modern Canvas"), Some(ThemeKind::ModernCanvas));
+        assert!(ThemeKind::ALL.contains(&ThemeKind::ModernCanvas));
     }
 }

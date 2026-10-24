@@ -1500,7 +1500,7 @@ mod tests {
         let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(600.0, 400.0)).build_ui_state(
             |ui, app: &mut PhotocraftApp| {
                 let v = app.ui.views[0].clone();
-                crate::canvas::canvas_view(app, ui, 0, ui.max_rect(), v, true);
+                crate::canvas::canvas_view(app, ui, 0, ui.max_rect(), v, true, false);
             },
             a,
         );

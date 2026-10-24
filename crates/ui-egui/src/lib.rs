@@ -2447,7 +2447,15 @@ impl eframe::App for PhotocraftApp {
         }
         let t = theme::Tokens::get(&ctx);
         let backdrop = if chrome { prefs_ui::pasteboard_color(self).unwrap_or(t.canvas) } else { egui::Color32::BLACK };
-        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(backdrop)).show(ui, |ui| {
+        // The island shell (REV6): the central strip paints the page and insets the document
+        // island by the 4pt halves of its gaps to the toolbar, dock and bars; the workspace
+        // inside the island keeps the pasteboard/canvas shade (canvas::documents).
+        let central = if t.islands && chrome {
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 4, right: 4, top: 4, bottom: 4 })
+        } else {
+            egui::Frame::NONE.fill(backdrop)
+        };
+        egui::CentralPanel::default().frame(central).show(ui, |ui| {
             canvas::document_area(self, ui);
         });
         panels::properties_window(self, &ctx);

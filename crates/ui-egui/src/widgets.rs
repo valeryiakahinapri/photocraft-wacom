@@ -128,9 +128,11 @@ pub fn card_ex(
         return pro_panel(ui, id, tabs, selected, collapsed, reorderable, body);
     }
     let m = body_margin(false);
+    // The island shell (REV6): the dock's cards lose their own borders — the mockup's column
+    // is one surface with hairline dividers — and the tab row sits in a Segmented track.
     let frame = egui::Frame::NONE
         .fill(t.card)
-        .stroke(Stroke::new(1.0, t.card_border))
+        .stroke(if t.islands { Stroke::NONE } else { Stroke::new(1.0, t.card_border) })
         .corner_radius(CornerRadius::same(t.radius as u8))
         .inner_margin(egui::Margin { bottom: if collapsed { 6 } else { m.bottom }, ..m });
     let out = frame
@@ -145,6 +147,15 @@ pub fn card_ex(
             let menu_rect = Rect::from_min_max(pos2(row.right() - 22.0, row.top() + 1.0), pos2(row.right(), row.bottom() - 1.0));
             let menu = crate::icons::button(&mut ui.new_child(egui::UiBuilder::new().max_rect(menu_rect)), "ellipsis", 22.0, false, &tip);
             let area = Rect::from_min_max(row.min, pos2((menu_rect.left() - 4.0).max(row.left()), row.bottom()));
+            if t.islands {
+                // The mockup's Segmented track the pills sit in: a page-tinted rounded well
+                // with an inset hairline (Shell.tsx's `bg-background/60` + hairline ring).
+                let mix = |a: u8, b: u8| (a as f32 * 0.6 + b as f32 * 0.4).round() as u8;
+                let track_fill = Color32::from_rgb(mix(t.page.r(), t.card.r()), mix(t.page.g(), t.card.g()), mix(t.page.b(), t.card.b()));
+                let track = Rect::from_min_max(pos2(area.left(), area.top() - 3.0), pos2(area.right(), area.bottom() + 3.0));
+                ui.painter().rect_filled(track, CornerRadius::same(t.radius as u8), track_fill);
+                ui.painter().rect_stroke(track, CornerRadius::same(t.radius as u8), Stroke::new(1.0, t.card_border), StrokeKind::Inside);
+            }
             let tabs_out = crate::tab_strip::pill_tabs(ui, ui.id().with((id, "tabs")), area, tabs, selected, reorderable);
             if !collapsed {
                 ui.add_space(6.0);
@@ -256,7 +267,8 @@ pub fn pill_tab(ui: &mut Ui, label: &str, selected: bool) -> Response {
     let size = vec2(galley.size().x + 20.0, 24.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     if selected {
-        surface(ui, rect, t.hover, true);
+        // The island shell's peek pills select with the Segmented's surface-3 fill.
+        surface(ui, rect, if t.islands { t.pressed } else { t.hover }, true);
         if !t.bevel {
             ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
         }

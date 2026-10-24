@@ -258,7 +258,10 @@ pub fn pill_tabs(ui: &mut Ui, id: egui::Id, area: Rect, tabs: &[&str], selected:
             // 2 pt between pills, as the old horizontal layout had.
             let r = Rect::from_min_max(r.min, pos2((r.right() - 2.0).max(r.left()), r.bottom()));
             if active {
-                crate::widgets::surface(ui, r, t.card, true);
+                // The island shell's Segmented selection: surface-3 fill with a hairline edge
+                // (the mockup's selected segment), the card fill elsewhere.
+                let fill = if t.islands { t.pressed } else { t.card };
+                crate::widgets::surface(ui, r, fill, true);
                 if !t.bevel {
                     ui.painter().rect_stroke(r, CornerRadius::same(t.radius_sm.round() as u8), Stroke::new(1.0, t.card_border), StrokeKind::Inside);
                 }

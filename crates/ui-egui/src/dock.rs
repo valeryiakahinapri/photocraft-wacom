@@ -538,6 +538,12 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
     let mut strips: Vec<StripRects> = Vec::with_capacity(rects.len());
     for (i, (g, rect)) in rects.iter().copied().enumerate() {
         let collapsed = app.ui.dock.is_collapsed(g);
+        // The island shell (REV6): the column reads as one surface — the mockup's
+        // `divide-y` — with a hairline in each gap instead of bordered cards.
+        if t.islands && i > 0 {
+            let y = rect.top() - 3.0;
+            ui.painter().line_segment([pos2(rect.left(), y), pos2(rect.right(), y)], egui::Stroke::new(1.0, t.separator));
+        }
         let mut child = ui.new_child(egui::UiBuilder::new().id_salt(("dock-group", g.key())).max_rect(rect));
         child.set_clip_rect(rect.intersect(ui.clip_rect()));
         child.spacing_mut().item_spacing.y = if t.pro { 0.0 } else { 6.0 };

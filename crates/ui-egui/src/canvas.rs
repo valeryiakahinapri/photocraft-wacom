@@ -2490,15 +2490,34 @@ fn documents(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let n = app.session.documents().len();
     // Files opening in the background (#210) have tabs before they have documents.
     let opening = !app.jobs.opens.is_empty();
+    let t = crate::theme::Tokens::get(ui.ctx());
+    // The island shell (REV6): the document area is the last island — the tab row sits on its
+    // surface, the workspace (the pasteboard/dot region) insets 6pt with its own radius, like
+    // the mockup's `workspace-bg` inside the document island. Non-island themes are unchanged.
+    if t.islands {
+        crate::panels::paint_island(ui, &t);
+    }
     if !opening && app.ui.chrome.shows_home(n, app.session.prefs().general.auto_show_home_screen) {
-        start_screen(app, ui);
+        if t.islands {
+            workspace_area(app, ui, false, |app, ui, _| start_screen(app, ui));
+        } else {
+            start_screen(app, ui);
+        }
         return;
     }
     if n == 0 && !opening {
         // Auto show the Home Screen is off: an empty workspace, like Photoshop.
-        let area = ui.available_rect_before_wrap();
-        paint_dots(ui, area, app.session.prefs().interface.show_canvas_dots);
-        open_on_double_click(app, ui, area);
+        let dots = app.session.prefs().interface.show_canvas_dots;
+        if t.islands {
+            workspace_area(app, ui, false, |app, ui, area| {
+                paint_dots(ui, area, dots);
+                open_on_double_click(app, ui, area);
+            });
+        } else {
+            let area = ui.available_rect_before_wrap();
+            paint_dots(ui, area, dots);
+            open_on_double_click(app, ui, area);
+        }
         return;
     }
     if !app.ui.view.hides_tabs() || opening {
@@ -2513,35 +2532,67 @@ fn documents(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         drop_slot_line(app, ui);
     }
     if let Some(job) = app.jobs.focus.or_else(|| (n == 0).then(|| app.jobs.opens.last().map(|o| o.job)).flatten()) {
-        crate::jobs_ui::open_card(app, ui, job);
-        return;
-    }
-    let Some(idx) = app.session.active_index() else { return };
-    let rect = ui.available_rect_before_wrap();
-    app.last_canvas_rect = rect;
-    app.drop_canvas_rect = Some(rect);
-    // Window › Arrange: tiled / n-up layouts show several documents side by side; the active one
-    // takes input, a click elsewhere activates that document.
-    if let Some(shown) = arranged_cells(app, rect) {
-        app.arrange_start = shown.first().map_or(0, |(d, _)| *d);
-        let t = crate::theme::Tokens::get(ui.ctx());
-        for (d, cell) in shown {
-            let cell = cell.shrink(1.0);
-            let view = app.ui.views[d].clone();
-            let v = canvas_view(app, ui, d, cell, view, d == idx);
-            if d != idx {
-                app.ui.views[d] = v;
-                if ui.input(|i| i.pointer.primary_pressed() && i.pointer.interact_pos().is_some_and(|p| cell.contains(p))) {
-                    app.session.set_active(d);
-                }
-            }
-            let stroke = if d == idx { Stroke::new(1.5, t.accent) } else { Stroke::new(1.0, Color32::from_black_alpha(160)) };
-            ui.painter().rect_stroke(cell, 0, stroke, egui::StrokeKind::Inside);
+        if t.islands {
+            workspace_area(app, ui, true, |app, ui, _| crate::jobs_ui::open_card(app, ui, job));
+        } else {
+            crate::jobs_ui::open_card(app, ui, job);
         }
         return;
     }
-    let view = app.ui.views[idx].clone();
-    canvas_view(app, ui, idx, rect, view, true);
+    let Some(idx) = app.session.active_index() else { return };
+    // The documents themselves: inside the workspace under islands, on the raw area otherwise.
+    let show = |app: &mut PhotocraftApp, ui: &mut egui::Ui, rect: Rect| {
+        app.last_canvas_rect = rect;
+        app.drop_canvas_rect = Some(rect);
+        // Window › Arrange: tiled / n-up layouts show several documents side by side; the active one
+        // takes input, a click elsewhere activates that document.
+        if let Some(shown) = arranged_cells(app, rect) {
+            app.arrange_start = shown.first().map_or(0, |(d, _)| *d);
+            let t = crate::theme::Tokens::get(ui.ctx());
+            for (d, cell) in shown {
+                let cell = cell.shrink(1.0);
+                let view = app.ui.views[d].clone();
+                let v = canvas_view(app, ui, d, cell, view, d == idx, false);
+                if d != idx {
+                    app.ui.views[d] = v;
+                    if ui.input(|i| i.pointer.primary_pressed() && i.pointer.interact_pos().is_some_and(|p| cell.contains(p))) {
+                        app.session.set_active(d);
+                    }
+                }
+                let stroke = if d == idx { Stroke::new(1.5, t.accent) } else { Stroke::new(1.0, Color32::from_black_alpha(160)) };
+                ui.painter().rect_stroke(cell, 0, stroke, egui::StrokeKind::Inside);
+            }
+            return;
+        }
+        let view = app.ui.views[idx].clone();
+        canvas_view(app, ui, idx, rect, view, true, t.islands);
+    };
+    if t.islands {
+        workspace_area(app, ui, true, show);
+    } else {
+        let rect = ui.available_rect_before_wrap();
+        show(app, ui, rect);
+    }
+}
+
+/// Run `f` over the document workspace (REV6): under islands, the 6pt-inset rounded
+/// pasteboard region inside the document island (`below_tabs`: no top inset, the tab row
+/// sits directly above); otherwise the raw available area, unchanged. `f` receives the
+/// workspace rect — the canvas's own rect, drop targets and tiling cells base on it.
+fn workspace_area(app: &mut PhotocraftApp, ui: &mut egui::Ui, below_tabs: bool, f: impl FnOnce(&mut PhotocraftApp, &mut egui::Ui, Rect)) {
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let mut ws = ui.available_rect_before_wrap();
+    ws.min.x += 6.0;
+    ws.max.x -= 6.0;
+    ws.max.y -= 6.0;
+    if !below_tabs {
+        ws.min.y += 6.0;
+    }
+    let fill = crate::prefs_ui::pasteboard_color(app).unwrap_or(t.canvas);
+    ui.painter().rect_filled(ws, egui::CornerRadius::same(t.radius as u8), fill);
+    ui.scope_builder(egui::UiBuilder::new().max_rect(ws), |ui| {
+        f(app, ui, ui.available_rect_before_wrap());
+    });
 }
 
 /// The tab strip; returns where its document tabs are.
@@ -2621,19 +2672,27 @@ fn tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
                 egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, sel, label)
             });
             doc_tabs.push((i, r));
+            // The island shell's document tabs carry the mockup's 5pt radius; other themes keep
+            // the small radius.
+            let tab_r = if t.islands { t.radius } else { t.radius_sm };
             if sel {
-                ui.painter().rect_filled(r, t.radius_sm, t.canvas);
-                ui.painter().rect_stroke(r, t.radius_sm, Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
+                ui.painter().rect_filled(r, tab_r, t.canvas);
+                ui.painter().rect_stroke(r, tab_r, Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
             } else if resp.hovered() {
-                ui.painter().rect_filled(r, t.radius_sm, t.hover.gamma_multiply(0.5));
+                ui.painter().rect_filled(r, tab_r, t.hover.gamma_multiply(0.5));
             }
             if dragging.is_some_and(|p| r.contains(p)) {
                 drag_over = Some(i);
-                ui.painter().rect_stroke(r, t.radius_sm, Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(r, tab_r, Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
             }
             let color = if sel { t.text } else { t.text_dim };
+            // The mockup's active tab leads with a small accent dot (Shell.tsx's status dot).
+            let (name_x, dot) = if t.islands && sel { (18.0, true) } else { (10.0, false) };
+            if dot {
+                ui.painter().circle_filled(egui::pos2(r.left() + 9.0, r.center().y), 3.0, t.accent);
+            }
             let ny = r.center().y - name_g.size().y / 2.0;
-            ui.painter().galley_with_override_text_color(egui::pos2(r.left() + 10.0, ny), name_g.clone(), color);
+            ui.painter().galley_with_override_text_color(egui::pos2(r.left() + name_x, ny), name_g.clone(), color);
             ui.painter().galley(egui::pos2(r.left() + 16.0 + name_g.size().x, r.center().y - meta_g.size().y / 2.0), meta_g, t.text_faint);
             let xr = Rect::from_center_size(egui::pos2(r.right() - 12.0, r.center().y), egui::vec2(16.0, 16.0));
             let xresp = ui.interact(xr, ui.id().with(("dtabx", i)), Sense::click());
@@ -2664,11 +2723,12 @@ fn tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
             let meta_g = ui.painter().layout_no_wrap(format!("{:.0}%", frac * 100.0), meta_font.clone(), t.text_faint);
             let name_g = crate::tab_strip::elided(ui, name, font.clone(), t.text, (r.width() - STUDIO_TAB_PAD + STUDIO_TAB_GAP - meta_g.size().x).max(1.0));
             let resp = ui.interact(r, ui.id().with(("dtabjob", job.0)), Sense::click());
+            let tab_r = if t.islands { t.radius } else { t.radius_sm };
             if sel {
-                ui.painter().rect_filled(r, t.radius_sm, t.canvas);
-                ui.painter().rect_stroke(r, t.radius_sm, Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
+                ui.painter().rect_filled(r, tab_r, t.canvas);
+                ui.painter().rect_stroke(r, tab_r, Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
             } else if resp.hovered() {
-                ui.painter().rect_filled(r, t.radius_sm, t.hover.gamma_multiply(0.5));
+                ui.painter().rect_filled(r, tab_r, t.hover.gamma_multiply(0.5));
             }
             let ny = r.center().y - name_g.size().y / 2.0;
             ui.painter().galley_with_override_text_color(egui::pos2(r.left() + 10.0, ny), name_g.clone(), if sel { t.text } else { t.text_dim });
@@ -3114,7 +3174,7 @@ fn dots(ctx: &egui::Context, t: &crate::theme::Tokens) -> Option<egui::TextureId
     if let Some(tex) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(key)) {
         return Some(tex.id());
     }
-    let n = 22usize;
+    let n = 18usize;
     let mut px = vec![Color32::TRANSPARENT; n * n];
     for (dx, dy, a) in [(0usize, 0usize, 255u8), (1, 0, 110), (0, 1, 110), (1, 1, 60)] {
         let c = t.canvas_dot;
@@ -3138,8 +3198,16 @@ fn paint_dots(ui: &egui::Ui, rect: Rect, enabled: bool) {
     }
     let t = crate::theme::Tokens::get(ui.ctx());
     if let Some(id) = dots(ui.ctx(), &t) {
-        let uv = Rect::from_min_max(Pos2::ZERO, pos2(rect.width() / 22.0, rect.height() / 22.0));
-        ui.painter_at(rect).image(id, rect, uv, Color32::WHITE);
+        let uv = Rect::from_min_max(Pos2::ZERO, pos2(rect.width() / 18.0, rect.height() / 18.0));
+        if t.islands {
+            // The island shell's workspace rounds the dot grid with it — a brush-shaped rect
+            // carries the rounded clip the plain image paint can't.
+            let mut shape = egui::epaint::RectShape::filled(rect, egui::CornerRadius::same(t.radius as u8), Color32::WHITE);
+            shape.brush = Some(std::sync::Arc::new(egui::epaint::Brush { fill_texture_id: id, uv }));
+            ui.painter_at(rect).add(shape);
+        } else {
+            ui.painter_at(rect).image(id, rect, uv, Color32::WHITE);
+        }
     }
 }
 
@@ -3388,7 +3456,7 @@ fn hdr_preview(app: &PhotocraftApp, doc: &photocraft_doc::Document) -> Option<[f
 }
 
 /// Draw one canvas view and handle its input. `primary` = main window (tools active).
-pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect: Rect, mut view: View, primary: bool) -> View {
+pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect: Rect, mut view: View, primary: bool, workspace: bool) -> View {
     let ctx = ui.ctx().clone();
     // The camera as the app holds it before this frame's input. The canvas works on its own copy
     // (`view`) and writes it back at the end; a tool that moves the camera itself meanwhile (the
@@ -3481,11 +3549,25 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let stroke_dismissal = primary && crate::shape_stroke_ui::dismiss_from_canvas(app, &response);
     let painter = ui.painter_at(rect);
 
+    // The island shell (REV6): the main workspace's pasteboard rounds with the workspace
+    // (the 6pt-inset region inside the document island); tiles and floating windows keep
+    // square fills inside it.
+    let backdrop_radius = if workspace && crate::theme::Tokens::get(ui.ctx()).islands {
+        egui::CornerRadius::same(crate::theme::Tokens::get(ui.ctx()).radius as u8)
+    } else {
+        egui::CornerRadius::ZERO
+    };
     match crate::prefs_ui::pasteboard_color(app) {
         Some(c) => {
-            ui.painter_at(rect).rect_filled(rect, 0.0, c);
+            ui.painter_at(rect).rect_filled(rect, backdrop_radius, c);
         }
-        None => paint_dots(ui, rect, app.session.prefs().interface.show_canvas_dots),
+        None => {
+            if backdrop_radius != egui::CornerRadius::ZERO {
+                let t = crate::theme::Tokens::get(ui.ctx());
+                ui.painter_at(rect).rect_filled(rect, backdrop_radius, t.canvas);
+            }
+            paint_dots(ui, rect, app.session.prefs().interface.show_canvas_dots);
+        }
     }
     let border = app.session.prefs().interface.canvas_border;
     // Default-mode Crop changes its camera during input. Defer its image until the new camera
@@ -6553,7 +6635,7 @@ pub fn extra_windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
             }
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(crate::theme::Tokens::get(ui.ctx()).canvas)).show(ui, |ui| {
                 let rect = ui.available_rect_before_wrap();
-                view = canvas_view(app, ui, w.document, rect, view.clone(), false);
+                view = canvas_view(app, ui, w.document, rect, view.clone(), false, false);
                 // Preferences › Zoom Resizes Windows: a zoom wraps the window around the image.
                 crate::zoom_window_fit::follow(app, ui.ctx(), class, vid, &w, &mut view, rect);
             });
@@ -8629,7 +8711,7 @@ mod tests {
             let view = app.ui.views[0].clone();
             assert_eq!(view.zoom, zoom, "ui.set applied the zoom");
             let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
-                canvas_view(&mut app, ui, 0, Rect::from_min_size(Pos2::ZERO, vec2(200.0, 200.0)), view.clone(), false);
+                canvas_view(&mut app, ui, 0, Rect::from_min_size(Pos2::ZERO, vec2(200.0, 200.0)), view.clone(), false, false);
             });
             out.textures_delta.clear();
             // Control: a centre on the selection's corner still traces the outline (the selection
@@ -8654,7 +8736,7 @@ mod tests {
         let mut input = egui::RawInput::default();
         input.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(2.0);
         let mut out = ctx.run_ui(input, |ui| {
-            canvas_view(&mut app, ui, 0, Rect::from_min_size(Pos2::ZERO, vec2(200.0, 200.0)), view.clone(), true);
+            canvas_view(&mut app, ui, 0, Rect::from_min_size(Pos2::ZERO, vec2(200.0, 200.0)), view.clone(), true, false);
         });
         out.textures_delta.clear();
         assert_eq!(app.ppp, 2.0, "the primary canvas records the display scale");
@@ -8676,7 +8758,7 @@ mod tests {
             let mut input = egui::RawInput::default();
             input.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(ppp);
             let mut out = ctx.run_ui(input, |ui| {
-                canvas_view(app, ui, 0, Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0)), view.clone(), primary);
+                canvas_view(app, ui, 0, Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0)), view.clone(), primary, false);
             });
             out.textures_delta.clear();
         };
@@ -8710,7 +8792,7 @@ mod tests {
             let mut frame = |app: &mut PhotocraftApp, events: Vec<egui::Event>| -> View {
                 let input = egui::RawInput { screen_rect: Some(rect), events, ..Default::default() };
                 let mut out = ctx.run_ui(input, |ui| {
-                    view = canvas_view(app, ui, 0, rect, view.clone(), true);
+                    view = canvas_view(app, ui, 0, rect, view.clone(), true, false);
                 });
                 out.textures_delta.clear();
                 view.clone()
@@ -8773,7 +8855,7 @@ mod tests {
             let input = egui::RawInput { screen_rect: Some(rect), events, ..Default::default() };
             let mut seen = view0.clone();
             let mut out = ctx.run_ui(input, |ui| {
-                seen = canvas_view(app, ui, 0, rect, view0.clone(), false);
+                seen = canvas_view(app, ui, 0, rect, view0.clone(), false, false);
             });
             out.textures_delta.clear();
             seen
@@ -8811,7 +8893,7 @@ mod tests {
         let frame = |app: &mut PhotocraftApp, events: Vec<egui::Event>| {
             let input = egui::RawInput { screen_rect: Some(rect), events, ..Default::default() };
             let mut out = ctx.run_ui(input, |ui| {
-                canvas_view(app, ui, 0, rect, view.clone(), true);
+                canvas_view(app, ui, 0, rect, view.clone(), true, false);
             });
             out.textures_delta.clear();
         };
@@ -8869,7 +8951,7 @@ mod tests {
         let rect = Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0));
         let input = egui::RawInput { screen_rect: Some(rect), ..Default::default() };
         let mut out = ctx.run_ui(input, |ui| {
-            canvas_view(&mut app, ui, 0, rect, view.clone(), true);
+            canvas_view(&mut app, ui, 0, rect, view.clone(), true, false);
         });
         out.textures_delta.clear();
         // At 100 % centred on the document, screen and document coordinates coincide.
@@ -8932,7 +9014,7 @@ mod tests {
             let rect = Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0));
             let input = egui::RawInput { screen_rect: Some(rect), ..Default::default() };
             let mut out = ctx.run_ui(input, |ui| {
-                canvas_view(&mut app, ui, 0, rect, view.clone(), true);
+                canvas_view(&mut app, ui, 0, rect, view.clone(), true, false);
             });
             out.textures_delta.clear();
             // At 100 % centred on the document, screen and document coordinates coincide.
@@ -9996,7 +10078,7 @@ mod zoom_animation_tests {
             let input = egui::RawInput { screen_rect: Some(rect), time: Some(time), ..Default::default() };
             let mut shown = view.clone();
             let mut out = ctx.run_ui(input, |ui| {
-                shown = canvas_view(app, ui, 0, rect, view.clone(), false);
+                shown = canvas_view(app, ui, 0, rect, view.clone(), false, false);
             });
             out.textures_delta.clear();
             shown

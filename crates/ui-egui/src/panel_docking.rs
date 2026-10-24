@@ -407,53 +407,87 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
     let mut commands = Vec::new();
     let mut targets = Vec::new();
     let mut draw = |ui: &mut egui::Ui| {
-        let mut style = craft_ui::docking::DockStyle::from_ui(ui);
-        style.tab_height = if t.pro { 28.0 } else { 40.0 };
-        style.min_pane = 0.0;
-        style.background = t.canvas;
-        // Studio themes leave the strip transparent over the dock's card; a floating group has no
-        // card behind it, so the canvas showed through its titles (#4509).
-        style.tab_background = if t.tab_strip.a() == 0 { t.canvas } else { t.tab_strip };
-        style.active_background = t.card;
-        style.text = t.text;
-        style.inactive_text = t.text_dim;
-        style.border = egui::Stroke::new(1.0, t.card_border);
-        style.accent = t.accent;
-        style.float_label = tl!("Float Panel").to_string();
-        style.close_label = tl!("Close Panel").to_string();
-        style.move_label = tl!("Group with").to_string();
-        style.panels_label = tl!("Panels").to_string();
-        style.resize_label = tl!("Resize panels").to_string();
-        style.resize_window_label = tl!("Resize panel window").to_string();
-        let mut area = craft_ui::docking::DockArea::new(egui::Id::new("photocraft-panel-docking"));
-        if let Some(panel) = &reveal {
-            area = area.raise_panel(panel.clone());
+        // The island shell (REV6): the customized column paints the same island segment the
+        // legacy dock paints (square seam side, rounded screen side), with the old 4pt
+        // content padding inside it.
+        if t.islands {
+            let mut r = ui.max_rect();
+            r.min.x -= 4.0;
+            let rr = t.radius.round() as u8;
+            crate::panels::paint_island_rect(ui.painter(), &t, r, egui::CornerRadius { nw: 0, ne: rr, sw: 0, se: rr });
         }
-        area.show_customized(
-            ui,
-            &layout,
-            &style,
-            |id| PANELS.iter().find(|p| p.0 == id).map(|p| tl!(p.1).to_string()).unwrap_or_else(|| id.clone()),
-            |_| craft_ui::docking::Permissions { movable: !locked, floatable: !locked, closable: !locked, accepts_tabs: !locked },
-            |id| {
-                if collapsed.contains(id) {
-                    craft_ui::docking::PanelLimits { min: egui::vec2(220.0, 0.0), max: egui::vec2(1_000_000.0, 0.0) }
-                } else {
-                    // Layers owns its row scroll and footer; leave room for its fixed controls
-                    // plus a scrolling row area instead of clipping the footer after a split.
-                    let height = if id == "layers" { 220.0 } else { 80.0 };
-                    craft_ui::docking::PanelLimits { min: egui::vec2(220.0, height), ..Default::default() }
-                }
-            },
-            &mut PanelContent { app, collapsed: &collapsed, commands: &mut commands, targets: &mut targets },
-        )
+        let mut content = |ui: &mut egui::Ui| {
+            let mut style = craft_ui::docking::DockStyle::from_ui(ui);
+            style.tab_height = if t.pro { 28.0 } else { 40.0 };
+            style.min_pane = 0.0;
+            // The island shell (REV6): the dock's panes live inside the right-side island, so the
+            // dock background reads as the island's card surface, never the workspace shade.
+            style.background = if t.islands { t.card } else { t.canvas };
+            // Studio themes leave the strip transparent over the dock's card; a floating group has no
+            // card behind it, so the canvas showed through its titles (#4509). Under islands the
+            // strip sits on the island's card too.
+            style.tab_background = if t.islands {
+                t.card
+            } else if t.tab_strip.a() == 0 {
+                t.canvas
+            } else {
+                t.tab_strip
+            };
+            style.active_background = t.card;
+            style.text = t.text;
+            style.inactive_text = t.text_dim;
+            style.border = egui::Stroke::new(1.0, t.card_border);
+            style.accent = t.accent;
+            style.float_label = tl!("Float Panel").to_string();
+            style.close_label = tl!("Close Panel").to_string();
+            style.move_label = tl!("Group with").to_string();
+            style.panels_label = tl!("Panels").to_string();
+            style.resize_label = tl!("Resize panels").to_string();
+            style.resize_window_label = tl!("Resize panel window").to_string();
+            let mut area = craft_ui::docking::DockArea::new(egui::Id::new("photocraft-panel-docking"));
+            if let Some(panel) = &reveal {
+                area = area.raise_panel(panel.clone());
+            }
+            area.show_customized(
+                ui,
+                &layout,
+                &style,
+                |id| PANELS.iter().find(|p| p.0 == id).map(|p| tl!(p.1).to_string()).unwrap_or_else(|| id.clone()),
+                |_| craft_ui::docking::Permissions { movable: !locked, floatable: !locked, closable: !locked, accepts_tabs: !locked },
+                |id| {
+                    if collapsed.contains(id) {
+                        craft_ui::docking::PanelLimits { min: egui::vec2(220.0, 0.0), max: egui::vec2(1_000_000.0, 0.0) }
+                    } else {
+                        // Layers owns its row scroll and footer; leave room for its fixed controls
+                        // plus a scrolling row area instead of clipping the footer after a split.
+                        let height = if id == "layers" { 220.0 } else { 80.0 };
+                        craft_ui::docking::PanelLimits { min: egui::vec2(220.0, height), ..Default::default() }
+                    }
+                },
+                &mut PanelContent { app, collapsed: &collapsed, commands: &mut commands, targets: &mut targets },
+            )
+        };
+        if t.islands { egui::Frame::NONE.inner_margin(egui::Margin::same(4)).show(ui, content).inner } else { content(ui) }
     };
     let output = if layout.root.is_some() {
         let mut panel = egui::Panel::right("shared-panel-dock")
-            .default_size(if t.pro { 290.0 } else { 300.0 })
+            .default_size(if t.islands {
+                328.0
+            } else if t.pro {
+                290.0
+            } else {
+                300.0
+            })
             .size_range(crate::panels::dock_width_range(ui.ctx().content_rect().width()))
             .resizable(!locked)
-            .frame(egui::Frame::NONE.fill(t.canvas).corner_radius(crate::panels::chrome_panel_radius(&t)).inner_margin(egui::Margin::same(4)));
+            .show_separator_line(!t.islands)
+            .frame(if t.islands {
+                // The island shell's customized column: same page gaps and column segment as
+                // the legacy dock (panels::dock_panels), so both paths draw one island.
+                egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 4, right: 8, top: 4, bottom: 4 })
+            } else {
+                egui::Frame::NONE.fill(t.canvas).corner_radius(crate::panels::chrome_panel_radius(&t)).inner_margin(egui::Margin::same(4))
+            });
         if let Some(width) = requested_width {
             panel = panel.exact_size(width);
         }

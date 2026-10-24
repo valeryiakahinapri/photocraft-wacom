@@ -995,3 +995,44 @@ fn a_wrongly_typed_section_or_colour_setting_resets_only_that_part() {
     assert!(s.load_prefs_json(&deep).is_ok());
     assert!(s.load_prefs_json(r#"{"interface": {"theme": 3, "uiScale": [1]}, "workspaces": {"x": 1}, "menus": 1}"#).is_ok());
 }
+
+#[test]
+fn modern_canvas_migrates_the_old_default_once_and_keeps_explicit_picks() {
+    // A pre-REV6 save sat the dark slot on proMedium, the old default: it moves to
+    // modernCanvas once, and the flag records that it did.
+    let mut s = Session::new();
+    s.load_prefs_json(&json!({"interface": {"appearanceMode": "dark", "darkTheme": "proMedium", "theme": "proMedium"}}).to_string()).unwrap();
+    assert_eq!(s.prefs().interface.dark_theme, DarkTheme::ModernCanvas);
+    assert_eq!(s.prefs().interface.theme, Theme::ModernCanvas);
+    assert!(s.prefs().interface.modern_migrated);
+    // The migrated file round-trips without flipping anything else.
+    let json = s.prefs_to_json();
+    let mut reloaded = Session::new();
+    reloaded.load_prefs_json(&json).unwrap();
+    assert_eq!(reloaded.prefs().interface, s.prefs().interface);
+    // An explicit different pick is kept: the guard compares the value, not the file's age.
+    let mut picked = Session::new();
+    picked.load_prefs_json(&json!({"interface": {"appearanceMode": "dark", "darkTheme": "studio", "theme": "studio"}}).to_string()).unwrap();
+    assert_eq!(picked.prefs().interface.dark_theme, DarkTheme::Studio);
+    assert!(!picked.prefs().interface.modern_migrated, "no migration ran, so the flag stays off");
+    // Re-saving an explicit proMedium pick after migration keeps proMedium (it is a valid
+    // choice again, no longer just the default).
+    let mut again = Session::new();
+    again
+        .load_prefs_json(&json!({"interface": {"appearanceMode": "dark", "darkTheme": "proMedium", "theme": "proMedium", "modernMigrated": true}}).to_string())
+        .unwrap();
+    assert_eq!(again.prefs().interface.dark_theme, DarkTheme::ProMedium);
+    // Light/Auto-light users are untouched (modernCanvas is dark-only this round).
+    let mut light = Session::new();
+    light.load_prefs_json(&json!({"interface": {"appearanceMode": "light", "darkTheme": "proMedium", "lightTheme": "proLight"}}).to_string()).unwrap();
+    assert_eq!(light.prefs().interface.dark_theme, DarkTheme::ModernCanvas);
+    assert_eq!(light.prefs().interface.light_theme, LightTheme::ProLight, "the visible light theme is untouched");
+}
+
+#[test]
+fn modern_canvas_theme_selects_dark_appearance() {
+    let mut s = Session::new();
+    s.execute("prefs.set", json!({"path": "interface.theme", "value": "modernCanvas"})).unwrap();
+    assert_eq!(s.prefs().interface.appearance_mode, AppearanceMode::Dark);
+    assert_eq!(s.prefs().interface.dark_theme, DarkTheme::ModernCanvas);
+}

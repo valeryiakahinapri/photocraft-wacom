@@ -55,9 +55,9 @@ choice!(TypeUnit { Points = "points", Pixels = "pixels", Millimeters = "mm" } de
 choice!(PointSize { PostScript = "postScript", Traditional = "traditional" } default PostScript);
 choice!(Interpolation { BicubicAutomatic = "bicubicAutomatic", Nearest = "nearestNeighbor", Bilinear = "bilinear", Bicubic = "bicubic", BicubicSmoother = "bicubicSmoother", BicubicSharper = "bicubicSharper", PreserveDetails = "preserveDetails" } default BicubicAutomatic);
 choice!(ColorPicker { Adobe = "adobe", System = "system" } default Adobe);
-choice!(Theme { Pro = "pro", ProMedium = "proMedium", ProLightGray = "proLightGray", ProLight = "proLight", Studio = "studio", StudioLight = "studioLight", Classic = "classic", SolarizedDark = "solarizedDark", Adwaita = "adwaita", AdwaitaDark = "adwaitaDark", BreezeLight = "breezeLight", BreezeDark = "breezeDark", SoftDark = "softDark", SoftLight = "softLight" } default ProMedium);
+choice!(Theme { Pro = "pro", ProMedium = "proMedium", ProLightGray = "proLightGray", ProLight = "proLight", ModernCanvas = "modernCanvas", Studio = "studio", StudioLight = "studioLight", Classic = "classic", SolarizedDark = "solarizedDark", Adwaita = "adwaita", AdwaitaDark = "adwaitaDark", BreezeLight = "breezeLight", BreezeDark = "breezeDark", SoftDark = "softDark", SoftLight = "softLight" } default ModernCanvas);
 choice!(AppearanceMode { Auto = "auto", Dark = "dark", Light = "light" } default Dark);
-choice!(DarkTheme { Pro = "pro", ProMedium = "proMedium", Studio = "studio", SolarizedDark = "solarizedDark", AdwaitaDark = "adwaitaDark", BreezeDark = "breezeDark", SoftDark = "softDark" } default ProMedium);
+choice!(DarkTheme { Pro = "pro", ProMedium = "proMedium", ModernCanvas = "modernCanvas", Studio = "studio", SolarizedDark = "solarizedDark", AdwaitaDark = "adwaitaDark", BreezeDark = "breezeDark", SoftDark = "softDark" } default ModernCanvas);
 choice!(LightTheme { ProLight = "proLight", ProLightGray = "proLightGray", StudioLight = "studioLight", Classic = "classic", Adwaita = "adwaita", BreezeLight = "breezeLight", SoftLight = "softLight" } default ProLight);
 choice!(CanvasColor { Default = "default", Black = "black", DarkGray = "darkGray", MediumGray = "mediumGray", LightGray = "lightGray", Custom = "custom" } default Default);
 choice!(CanvasBorder { DropShadow = "dropShadow", Line = "line", None = "none" } default DropShadow);
@@ -255,6 +255,9 @@ pub struct Interface {
     pub appearance_mode: AppearanceMode,
     pub dark_theme: DarkTheme,
     pub light_theme: LightTheme,
+    /// One-shot: preferences saved before the modern-canvas round (dark slot on the old
+    /// proMedium default) have been moved to modernCanvas. Explicit picks are kept.
+    pub modern_migrated: bool,
     /// Theme shortcuts shown in the appearance button's context menu.
     pub favorite_themes: Vec<Theme>,
     /// Pasteboard colour in standard screen mode (`canvasCustomColor` when "custom").
@@ -306,10 +309,11 @@ pub struct Interface {
 impl Default for Interface {
     fn default() -> Self {
         Self {
-            theme: Theme::ProMedium,
+            theme: Theme::ModernCanvas,
             appearance_mode: AppearanceMode::Dark,
-            dark_theme: DarkTheme::ProMedium,
+            dark_theme: DarkTheme::ModernCanvas,
             light_theme: LightTheme::ProLight,
+            modern_migrated: false,
             favorite_themes: Vec::new(),
             canvas_color: CanvasColor::Default,
             canvas_custom_color: "#282828".into(),
@@ -1873,9 +1877,14 @@ impl Session {
             && let Some(theme) = interface.get("theme").and_then(Value::as_str).and_then(Theme::parse)
         {
             let (mode, slot) = match theme {
-                Theme::Pro | Theme::ProMedium | Theme::Studio | Theme::SolarizedDark | Theme::AdwaitaDark | Theme::BreezeDark | Theme::SoftDark => {
-                    ("dark", "darkTheme")
-                }
+                Theme::Pro
+                | Theme::ProMedium
+                | Theme::ModernCanvas
+                | Theme::Studio
+                | Theme::SolarizedDark
+                | Theme::AdwaitaDark
+                | Theme::BreezeDark
+                | Theme::SoftDark => ("dark", "darkTheme"),
                 Theme::StudioLight | Theme::ProLightGray | Theme::ProLight | Theme::Classic | Theme::Adwaita | Theme::BreezeLight | Theme::SoftLight => {
                     ("light", "lightTheme")
                 }
@@ -1883,6 +1892,20 @@ impl Session {
             interface.insert("appearanceMode".into(), json!(mode));
             // A partially migrated file may already contain a newer theme selection (#5139).
             interface.entry(slot).or_insert_with(|| json!(theme.name()));
+        }
+        // Preferences saved before the modern-canvas round sat the dark slot on proMedium,
+        // the old default. Move those once to modernCanvas: an explicit different pick keeps
+        // its theme (the guard compares the value, not the file's age), and light/Auto-light
+        // users keep their light theme — the modern-canvas look is dark-only this round.
+        if let Some(interface) = v.get_mut("interface").and_then(Value::as_object_mut)
+            && interface.get("modernMigrated").and_then(Value::as_bool) != Some(true)
+            && interface.get("darkTheme").and_then(Value::as_str) == Some("proMedium")
+        {
+            interface.insert("darkTheme".into(), json!("modernCanvas"));
+            if interface.get("theme").and_then(Value::as_str) == Some("proMedium") {
+                interface.insert("theme".into(), json!("modernCanvas"));
+            }
+            interface.insert("modernMigrated".into(), json!(true));
         }
         let color = v.as_object_mut().and_then(|m| m.remove("colorSettings"));
         let presets = v.as_object_mut().and_then(|m| m.remove("presets"));
@@ -1966,6 +1989,10 @@ impl Session {
                 }
                 Theme::ProMedium => {
                     next.interface.dark_theme = DarkTheme::ProMedium;
+                    next.interface.appearance_mode = AppearanceMode::Dark;
+                }
+                Theme::ModernCanvas => {
+                    next.interface.dark_theme = DarkTheme::ModernCanvas;
                     next.interface.appearance_mode = AppearanceMode::Dark;
                 }
                 Theme::Studio => {

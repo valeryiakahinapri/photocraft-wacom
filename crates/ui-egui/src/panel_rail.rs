@@ -46,73 +46,114 @@ fn icon(group: Group) -> &'static str {
 /// #6760 tabbed-in chrome): the icons toggle groups while it shows and open peeks while not.
 pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, customized: bool, column_shown: bool) {
     let t = Tokens::get(ui.ctx());
-    let (rw, rb) = if t.pro { (44.0, 28.0) } else { (52.0, 32.0) };
-    let resp = crate::direction::end_panel("rail")
-        .resizable(false)
-        .exact_size(rw)
-        .frame(
-            egui::Frame::NONE
-                .fill(t.canvas)
-                .corner_radius(crate::panels::chrome_panel_radius(&t))
-                .outer_margin(egui::Margin::same(4))
-                .inner_margin(egui::Margin::symmetric(4, 8)),
-        )
-        .show(ui, |ui| {
+    let rtl = crate::direction::is_rtl();
+    let (rw, rb) = if t.pro || t.islands { (44.0, 28.0) } else { (52.0, 32.0) };
+    // The island shell (REV6): the rail is the seam half of the right-side island. Its
+    // screen-edge margin animates with the column's own slide value (the same
+    // `animate_bool_responsive` id egui's `show_collapsible` drives): 0 while the column
+    // claims — the seam abuts its segment — swinging to 8 once folded, where the rail
+    // becomes a complete rounded island at the screen edge.
+    let edge = if t.islands {
+        let anim = egui::Id::new(if customized { "shared-panel-dock" } else { "dock" }).with("animation");
+        let fraction = ui.ctx().animate_bool_responsive(anim, column_shown);
+        (8.0 * (1.0 - fraction)).round()
+    } else {
+        0.0
+    };
+    let frame = if t.islands {
+        let edge = edge as i8;
+        if rtl {
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 8, right: edge, top: 4, bottom: 4 })
+        } else {
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 4, right: edge, top: 4, bottom: 4 })
+        }
+    } else {
+        egui::Frame::NONE
+            .fill(t.canvas)
+            .corner_radius(crate::panels::chrome_panel_radius(&t))
+            .outer_margin(egui::Margin::same(4))
+            .inner_margin(egui::Margin::symmetric(4, 8))
+    };
+    let resp = crate::direction::end_panel("rail").resizable(false).exact_size(if t.islands { rw + 4.0 + edge } else { rw }).frame(frame).show(ui, |ui| {
+        if t.islands {
+            // The rail segment of the right-side island: rounded toward the canvas,
+            // square at the seam while the column claims, all four corners once folded
+            // (the edge margin's swing carries the seam-side rounding with it).
+            let r = ui.max_rect();
+            let rr = t.radius.round() as u8;
+            let seam_round = (rr as f32 * (edge / 8.0)).round() as u8;
+            let radius = if rtl {
+                egui::CornerRadius { nw: seam_round, ne: rr, sw: seam_round, se: rr }
+            } else {
+                egui::CornerRadius { nw: rr, ne: seam_round, sw: rr, se: seam_round }
+            };
+            crate::panels::paint_island_rect(ui.painter(), &t, r, radius);
+            // The mockup rail's `border-r`: a hairline at the seam, only while the column
+            // claims its half of the island.
+            if edge < 7.0 {
+                let x = if rtl { r.left() } else { r.right() };
+                ui.painter().line_segment([pos2(x, r.top()), pos2(x, r.bottom())], Stroke::new(1.0, t.separator));
+            }
+        } else {
             // The separator is on the canvas side; the outer margin puts the island's edge 4px
             // further out than the content rect, so the line clears it by 2px at ±10.
             let r = ui.max_rect();
-            let x = if crate::direction::is_rtl() { r.right() + 10.0 } else { r.left() - 10.0 };
+            let x = if rtl { r.right() + 10.0 } else { r.left() - 10.0 };
             ui.painter().line_segment([pos2(x, r.top() - 8.0), pos2(x, r.bottom() + 8.0)], Stroke::new(1.0, t.separator));
-            ui.spacing_mut().item_spacing.y = 4.0;
-            // The fold toggle on top of the rail: one press folds or unfolds the dock column's
-            // content (`window.toggle.dockExpanded` — the fold is its own persisted preference;
-            // ⇧Tab's `window.toggle.dock` hides the column outright). UI-level ids dispatch
-            // through menus::invoke — the menu bar and keybinding path; app.run goes straight
-            // to the engine, which only catalogs these ids.
-            let (fold_icon, fold_label) = if p.dock_expanded {
-                (if crate::direction::is_rtl() { "chevrons-left" } else { "chevrons-right" }, tl!("Collapse Panel Dock"))
+        }
+        ui.spacing_mut().item_spacing.y = 4.0;
+        // The fold toggle on top of the rail: one press folds or unfolds the dock column's
+        // content (`window.toggle.dockExpanded` — the fold is its own persisted preference;
+        // ⇧Tab's `window.toggle.dock` hides the column outright). UI-level ids dispatch
+        // through menus::invoke — the menu bar and keybinding path; app.run goes straight
+        // to the engine, which only catalogs these ids.
+        let (fold_icon, fold_label) = if p.dock_expanded {
+            (if crate::direction::is_rtl() { "chevrons-left" } else { "chevrons-right" }, tl!("Collapse Panel Dock"))
+        } else {
+            (if crate::direction::is_rtl() { "chevrons-right" } else { "chevrons-left" }, tl!("Expand Panel Dock"))
+        };
+        if crate::icons::button(ui, fold_icon, rb, false, fold_label).clicked() {
+            if let Err(error) = crate::menus::invoke(app, ui.ctx(), "window.toggle.dockExpanded", json!({})) {
+                app.ui.status = error;
+            }
+        }
+        ui.add_space(3.0);
+        let (separator, _) = ui.allocate_exact_size(egui::vec2(rb, 1.0), egui::Sense::hover());
+        ui.painter().line_segment([separator.left_center(), separator.right_center()], Stroke::new(1.0, t.separator));
+        ui.add_space(3.0);
+        // One constant icon list in both states (the owner's mockup grammar): the icons
+        // toggle their group while the column shows, and open a floating peek while it is
+        // hidden — clicking the peeked icon again closes it (the no-params `window.panel.peek`
+        // parity). The peeked icon is the only lit one in the hidden state.
+        for g in ICON_ORDER {
+            // Studio floats Properties outside the dock.
+            let docked = t.pro || g != Group::Properties;
+            let peeked = app.ui.panel_peek.as_ref().is_some_and(|peek| peek.group == g);
+            let on = if column_shown {
+                if customized { crate::panel_docking::rail_on(app, g) } else { g.shown(p) && !(docked && app.ui.dock.is_collapsed(g)) }
             } else {
-                (if crate::direction::is_rtl() { "chevrons-right" } else { "chevrons-left" }, tl!("Expand Panel Dock"))
+                peeked
             };
-            if crate::icons::button(ui, fold_icon, rb, false, fold_label).clicked() {
-                if let Err(error) = crate::menus::invoke(app, ui.ctx(), "window.toggle.dockExpanded", json!({})) {
-                    app.ui.status = error;
-                }
-            }
-            ui.add_space(3.0);
-            let (separator, _) = ui.allocate_exact_size(egui::vec2(rb, 1.0), egui::Sense::hover());
-            ui.painter().line_segment([separator.left_center(), separator.right_center()], Stroke::new(1.0, t.separator));
-            ui.add_space(3.0);
-            // One constant icon list in both states (the owner's mockup grammar): the icons
-            // toggle their group while the column shows, and open a floating peek while it is
-            // hidden — clicking the peeked icon again closes it (the no-params `window.panel.peek`
-            // parity). The peeked icon is the only lit one in the hidden state.
-            for g in ICON_ORDER {
-                // Studio floats Properties outside the dock.
-                let docked = t.pro || g != Group::Properties;
-                let peeked = app.ui.panel_peek.as_ref().is_some_and(|peek| peek.group == g);
-                let on = if column_shown {
-                    if customized { crate::panel_docking::rail_on(app, g) } else { g.shown(p) && !(docked && app.ui.dock.is_collapsed(g)) }
-                } else {
-                    peeked
-                };
-                if crate::icons::rail_button(ui, icon(g), rb, on, g.label()).clicked() {
-                    if column_shown {
-                        if customized {
-                            crate::panel_docking::rail_click(app, g);
-                        } else {
-                            crate::dock::rail_click(app, g, docked);
-                        }
-                    } else if peeked {
-                        app.ui.panel_peek = None;
+            if crate::icons::rail_button(ui, icon(g), rb, on, g.label()).clicked() {
+                if column_shown {
+                    if customized {
+                        crate::panel_docking::rail_click(app, g);
                     } else {
-                        let tab = *g.tab_mut(&mut app.ui.dock_tabs);
-                        let anchor = ui.ctx().pointer_interact_pos().or_else(|| ui.ctx().pointer_latest_pos());
-                        app.ui.panel_peek = Some(crate::state::PanelPeek { group: g, tab, anchor, first: true });
+                        crate::dock::rail_click(app, g, docked);
                     }
+                } else if peeked {
+                    app.ui.panel_peek = None;
+                } else if edge < 7.0 {
+                    // Mid-slide: a peek would anchor to the column's still-animating edge and
+                    // stay there; the settled frame places it correctly (audit P2).
+                } else {
+                    let tab = *g.tab_mut(&mut app.ui.dock_tabs);
+                    let anchor = ui.ctx().pointer_interact_pos().or_else(|| ui.ctx().pointer_latest_pos());
+                    app.ui.panel_peek = Some(crate::state::PanelPeek { group: g, tab, anchor, first: true });
                 }
             }
-        });
+        }
+    });
     // The peek window places itself beside the rail and keeps clicks on the rail from
     // counting as "outside" (see [`peek_window`]).
     ui.ctx().data_mut(|d| d.insert_temp(rail_rect_id(), resp.response.rect));
@@ -173,7 +214,7 @@ pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let pro = t.pro;
     let width = if pro { 290.0 } else { 300.0 };
     let frame = egui::Frame::NONE
-        .fill(t.card)
+        .fill(if t.islands { t.popover } else { t.card })
         .stroke(egui::Stroke::new(1.0, t.card_border))
         .corner_radius(egui::CornerRadius::same(t.radius_lg as u8))
         .shadow(egui::Shadow { offset: [0, 10], blur: 30, spread: 0, color: t.shadow })
@@ -210,6 +251,10 @@ pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 }
             });
         });
+        if t.islands {
+            // The mockup flyout header's `border-b` hairline.
+            crate::widgets::hairline(ui);
+        }
         // The group's tabs as pills, like the dock's strip: a switch selects the panel the
         // dock would show, so a re-shown dock and the peek agree on the tab. The tab is read
         // live: automation may have changed the selection while peeked.

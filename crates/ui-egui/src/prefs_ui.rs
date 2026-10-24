@@ -106,6 +106,7 @@ fn selected_theme(interface: &prefs::Interface, system: Option<egui::Theme>) -> 
         match interface.dark_theme {
             DarkTheme::Pro => ThemeKind::Pro,
             DarkTheme::ProMedium => ThemeKind::ProMedium,
+            DarkTheme::ModernCanvas => ThemeKind::ModernCanvas,
             DarkTheme::Studio => ThemeKind::Studio,
             DarkTheme::SolarizedDark => ThemeKind::SolarizedDark,
             DarkTheme::AdwaitaDark => ThemeKind::AdwaitaDark,
@@ -161,6 +162,7 @@ const LIGHT_THEME_OPTIONS: &[(&str, ThemeKind)] = &[
     ("softLight", ThemeKind::SoftLight),
 ];
 const DARK_THEME_OPTIONS: &[(&str, ThemeKind)] = &[
+    ("modernCanvas", ThemeKind::ModernCanvas),
     ("proMedium", ThemeKind::ProMedium),
     ("pro", ThemeKind::Pro),
     ("studio", ThemeKind::Studio),

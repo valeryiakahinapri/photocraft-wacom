@@ -58,7 +58,7 @@ fn harness(app: PhotocraftApp) -> Harness<'static, PhotocraftApp> {
         |ui, app: &mut PhotocraftApp| {
             app.last_canvas_rect = ui.max_rect();
             let v = app.ui.views[0].clone();
-            crate::canvas::canvas_view(app, ui, 0, ui.max_rect(), v, true);
+            crate::canvas::canvas_view(app, ui, 0, ui.max_rect(), v, true, false);
         },
         app,
     );

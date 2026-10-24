@@ -26,7 +26,7 @@ fn assert_edges(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, primar
     let rect = Rect::from_min_size(Pos2::ZERO, vec2(600.0, 400.0));
     let view = View { zoom: 0.75, center: [300.0, 200.0], doc_size: [600, 400], fit_pending: false, ..Default::default() };
     let mut output = ctx.run_ui(egui::RawInput { screen_rect: Some(rect), ..Default::default() }, |ui| {
-        canvas_view(app, ui, idx, rect, view.clone(), primary);
+        canvas_view(app, ui, idx, rect, view.clone(), primary, false);
     });
     output.textures_delta.clear();
     let xf = ViewXform { rect, zoom: view.zoom / ctx.pixels_per_point(), center: view.center, flip: false, rotation: 0.0, aspect: 1.0 };
