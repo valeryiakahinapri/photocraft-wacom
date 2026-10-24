@@ -641,6 +641,24 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             app.jobs.focus = None;
             Ok(json!({"document": to}))
         }
+        "window.panel.peek" => {
+            // The rail's floating inspector while the dock is hidden (panel_rail): open a panel
+            // group as a peek window, or close the current one.
+            let name = params.get("panel").and_then(Value::as_str).ok_or("panel must name a panel group")?;
+            let group = crate::dock::Group::from_key(name).ok_or("panel must name a panel group")?;
+            let show = params
+                .get("show")
+                .or_else(|| params.get("on"))
+                .and_then(Value::as_bool)
+                .unwrap_or(app.ui.panel_peek.as_ref().is_none_or(|peek| peek.group != group));
+            if show {
+                let tab = *group.tab_mut(&mut app.ui.dock_tabs);
+                app.ui.panel_peek = Some(crate::state::PanelPeek { group, tab, anchor: None, first: true });
+            } else {
+                app.ui.panel_peek = None;
+            }
+            Ok(json!({"panel": name, "peek": show}))
+        }
         t if t.starts_with("window.toggle.") => {
             // A shown but collapsed dock group is expanded rather than hidden (#129).
             if let Some(g) = crate::dock::Group::from_key(&t["window.toggle.".len()..]).filter(|g| g.shown(&app.ui.panels) && app.ui.dock.is_collapsed(*g)) {
@@ -664,6 +682,10 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             *slot = !*slot;
             if let Some(g) = crate::dock::Group::from_key(&t["window.toggle.".len()..]).filter(|g| g.shown(&app.ui.panels)) {
                 crate::dock::reveal(app, g);
+            }
+            // The rail's floating peek is a hidden-dock affordance; the dock coming back ends it.
+            if t == "window.toggle.dock" && app.ui.panels.dock {
+                app.ui.panel_peek = None;
             }
             Ok(Value::Null)
         }
@@ -727,7 +749,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         return e;
     }
     match id {
-        "window.panel.activate" | "window.panel.layout" => true,
+        "window.panel.activate" | "window.panel.layout" | "window.panel.peek" => true,
         "window.panel.group" | "window.panel.move" | "window.panel.float" | "window.panel.dock" | "window.panel.close" => !app.session.prefs().workspace_locked,
         "file.open" | "file.exit" | "file.clearRecent" | "file.removeRecent" | "help.about" | "help.systemInfo" | "edit.search" => true,
         i if i.starts_with("file.openRecent.") => true,

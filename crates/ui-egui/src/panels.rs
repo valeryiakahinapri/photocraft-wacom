@@ -119,12 +119,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     crate::direction::start_panel("toolbar")
         .resizable(false)
         .exact_size(w)
-        .frame(
-            egui::Frame::NONE
-                .fill(t.chrome)
-                .corner_radius(chrome_panel_radius(&t))
-                .inner_margin(egui::Margin::symmetric(m, 8)),
-        )
+        .frame(egui::Frame::NONE.fill(t.chrome).corner_radius(chrome_panel_radius(&t)).inner_margin(egui::Margin::symmetric(m, 8)))
         .show(ui, |ui| {
             // Toolbar width is a user preference, not a Pro-only feature.
             // Keep the same hit target in every theme (including RTL layouts).
@@ -1818,11 +1813,7 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // while `panels.rail` allows and Tab hasn't hidden the chrome with the dock (menus.rs), so
     // hidden panels keep a way back.
     // Even legacy destinations must discard gestures captured by an earlier workspace.
-    let customized = if app.ui.panels.dock {
-        crate::panel_docking::show(app, ui)
-    } else {
-        app.ui.docking.is_some()
-    };
+    let customized = if app.ui.panels.dock { crate::panel_docking::show(app, ui) } else { app.ui.docking.is_some() };
     let t = Tokens::get(ui.ctx());
     let p = app.ui.panels.clone();
     let rail_visible = p.rail && !(p.hidden_by_tab.is_some() && !p.dock);
@@ -1888,17 +1879,10 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Pan
     if let Some(w) = ui.ctx().data_mut(|d| d.remove_temp::<f32>(dock_width_id())) {
         panel = panel.exact_size(w);
     }
-    panel
-        .frame(
-            egui::Frame::NONE
-                .fill(t.dock)
-                .corner_radius(chrome_panel_radius(t))
-                .inner_margin(egui::Margin::same(margin)),
-        )
-        .show(ui, |ui| {
-            // Groups keep their heights whatever they show (#88): see `dock`.
-            crate::dock::show(app, ui, &shown, dock_body);
-        });
+    panel.frame(egui::Frame::NONE.fill(t.dock).corner_radius(chrome_panel_radius(t)).inner_margin(egui::Margin::same(margin))).show(ui, |ui| {
+        // Groups keep their heights whatever they show (#88): see `dock`.
+        crate::dock::show(app, ui, &shown, dock_body);
+    });
 }
 
 /// One dock group's tab content; `dock` bounds it and scrolls it when it's taller.
@@ -7678,4 +7662,3 @@ mod sampler_readout_tests {
         assert_eq!(sampler_readouts(&mut app).len(), 2, "so does a new sampler");
     }
 }
-

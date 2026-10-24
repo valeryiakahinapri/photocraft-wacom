@@ -58,6 +58,20 @@ impl Group {
         }
     }
 
+    /// The group's display name (the rail tooltips and the rail's visibility rows): the same
+    /// strings the localization catalogs already translate.
+    pub fn label(self) -> &'static str {
+        match self {
+            Group::Color => "Color & Swatches",
+            Group::Properties => "Properties",
+            Group::Character => "Character",
+            Group::Navigator => "Navigator",
+            Group::History => "History",
+            Group::Layers => "Layers",
+            Group::Brushes => "Brushes",
+        }
+    }
+
     /// Height (points, tab strip included) a group gets until the user resizes it, when the
     /// column has room (see [`DockLayout::heights_for`]).
     pub fn default_height(self) -> f32 {
@@ -852,6 +866,7 @@ pub fn restore(app: &mut PhotocraftApp) {
 /// (a workspace or `panelLayout`). Missing or invalid dock parts are left alone; old
 /// layouts without Timeline visibility restore it closed.
 pub fn apply(app: &mut PhotocraftApp, v: &Value) {
+    app.ui.panel_peek = None;
     app.ui.docking_collapsed = v.get("dockingCollapsed").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
     app.ui.docking_reveal = None;
     app.ui.docking_generation = app.ui.docking_generation.wrapping_add(1);

@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::dock::Group;
+
 /// Photoshop-style Layers panel display preferences; part of serialized UI state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1280,6 +1282,18 @@ pub struct ColorPanelState {
     pub slider_mode: ColorPanelSliderMode,
 }
 
+/// One panel group shown as a floating window from the rail while the dock is hidden
+/// (`panel_rail`): `tab` is the group tab it shows, `anchor` the rail-click position that
+/// opened it (automation gets none), `first` the frame that still has to place the window.
+/// Never saved: a peek follows focus and closes on the next click outside.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PanelPeek {
+    pub group: Group,
+    pub tab: usize,
+    pub anchor: Option<egui::Pos2>,
+    pub first: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UiState {
     pub tool: Tool,
@@ -1472,6 +1486,10 @@ pub struct UiState {
     /// One-frame focus/raise request from an explicit panel reveal.
     #[serde(skip)]
     pub docking_reveal: Option<String>,
+    /// A panel group opened as a floating window from the rail while the dock is hidden
+    /// (see `panel_rail`): a peek follows focus, never outlives the session and is never saved.
+    #[serde(skip)]
+    pub panel_peek: Option<PanelPeek>,
     /// Which chip the Color panel edits.
     #[serde(default)]
     pub color_panel: ColorPanelState,
@@ -1609,6 +1627,7 @@ impl Default for UiState {
             docking_generation: 0,
             docking_collapsed: Vec::new(),
             docking_reveal: None,
+            panel_peek: None,
             color_panel: Default::default(),
             brush_section: 0,
             brush_tab: 0,

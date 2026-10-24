@@ -56,6 +56,12 @@ pub(crate) fn normalize(raw: &str) -> Option<&'static str> {
     PANELS.iter().find(|(id, label, _)| id.eq_ignore_ascii_case(raw.trim()) || label.eq_ignore_ascii_case(raw.trim())).map(|p| p.0)
 }
 
+/// The registered panel ids of `group`, in registry order; the first is the group's primary
+/// (the id `window.panel.<primary>` selects and `panel_rail` activates or closes as a unit).
+pub(crate) fn group_ids(group: Group) -> Vec<&'static str> {
+    PANELS.iter().filter(|p| p.2 == group).map(|p| p.0).collect()
+}
+
 pub(crate) fn valid(layout: &Layout<String>) -> bool {
     layout.validate().is_ok() && layout.panels().iter().all(|id| normalize(id) == Some(id.as_str()))
 }
@@ -264,7 +270,6 @@ fn apply_action(app: &mut PhotocraftApp, action: Action<String>) -> Result<Value
         app.ui.docking_hidden.extend(migration_hidden(app, &layout));
     }
     app.ui.docking = Some(layout);
-    app.ui.panels.dock = true;
     sync_visibility(app);
     if let Some(panel) = reveal {
         app.ui.docking_reveal = Some(panel.clone());
@@ -352,7 +357,6 @@ fn change(app: &mut PhotocraftApp, operation: &str, params: &Value) -> Result<Va
     }
     app.ui.docking = Some(layout);
     app.ui.docking_hidden = hidden;
-    app.ui.panels.dock = true;
     sync_visibility(app);
     if operation == "activate"
         && let Some((_, _, group)) = PANELS.iter().find(|p| p.0 == panel)
