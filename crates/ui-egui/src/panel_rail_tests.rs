@@ -44,7 +44,7 @@ fn press(h: &mut Harness<'static, PhotocraftApp>, at: Pos2) {
 }
 
 /// Visual fixtures (PNG snapshots) land in `$PHOTOCRAFT_PANEL_RAIL_FIXTURES` when set.
-fn shoot(h: &Harness<'static, PhotocraftApp>, name: &str) {
+fn shoot(h: &mut Harness<'static, PhotocraftApp>, name: &str) {
     if let Some(directory) = std::env::var_os("PHOTOCRAFT_PANEL_RAIL_FIXTURES").map(std::path::PathBuf::from) {
         std::fs::create_dir_all(&directory).unwrap();
         h.render().unwrap().save(directory.join(format!("panel-rail-{name}.png"))).unwrap();
@@ -56,7 +56,7 @@ fn shoot(h: &Harness<'static, PhotocraftApp>, name: &str) {
 #[test]
 fn the_rail_toggle_hides_and_shows_the_dock_column() {
     let mut h = harness(app(), vec2(1200.0, 800.0), ThemeKind::Studio);
-    shoot(&h, "icons");
+    shoot(&mut h, "icons");
     assert!(h.state().ui.panels.dock);
     assert!(h.state().ui.panels.color && h.state().ui.panels.properties && h.state().ui.panels.layers);
     assert!(!h.state().ui.panels.navigator && !h.state().ui.panels.history && !h.state().ui.panels.brushes && !h.state().ui.panels.character);
@@ -67,14 +67,14 @@ fn the_rail_toggle_hides_and_shows_the_dock_column() {
     // The toggle's popover: the dock row plus one checkbox per group.
     h.get_by_label("Show/Hide Panels").click();
     h.run_steps(2);
-    shoot(&h, "popover");
+    shoot(&mut h, "popover");
     for g in Group::ALL {
         assert!(h.query_by_role_and_label(egui::accesskit::Role::CheckBox, g.label()).is_some(), "no popover row for {g:?}");
     }
     h.get_by_label("Hide Dock").click();
     h.run_steps(3);
     assert!(!h.state().ui.panels.dock, "the row hides the dock column");
-    shoot(&h, "labels");
+    shoot(&mut h, "labels");
     // Collapsed: only the shown groups keep a (rotated label) chip; the icons are gone.
     for g in [Group::Color, Group::Properties, Group::Layers] {
         assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, g.label()).is_some(), "no label chip for the shown {g:?}");
@@ -106,7 +106,7 @@ fn a_rail_label_opens_a_floating_peek_that_follows_focus() {
     assert_eq!(h.state().ui.panel_peek.as_ref().map(|p| p.group), Some(Group::Layers));
     assert!(h.ctx.memory(|m| m.area_rect(peek_id())).is_some(), "the peek window is drawn");
     assert!(h.query_by_label("Close").is_some(), "the peek carries a close box");
-    shoot(&h, "peek");
+    shoot(&mut h, "peek");
     // A press outside the window and the rail closes the peek, like dock.rs's collapsed-group
     // peek; the label chip keeps its accent tint while open.
     press(&mut h, Pos2::new(60.0, 400.0));
@@ -115,7 +115,7 @@ fn a_rail_label_opens_a_floating_peek_that_follows_focus() {
     h.state_mut().run("window.panel.peek", json!({"panel": "history", "show": true})).unwrap();
     h.run_steps(3);
     assert_eq!(h.state().ui.panel_peek.as_ref().map(|p| p.group), Some(Group::History));
-    shoot(&h, "peek-history");
+    shoot(&mut h, "peek-history");
     h.event(egui::Event::Key { key: Key::Escape, physical_key: Some(Key::Escape), pressed: true, repeat: false, modifiers: Modifiers::NONE });
     h.run_steps(2);
     assert!(h.state().ui.panel_peek.is_none(), "Escape closes the peek");
