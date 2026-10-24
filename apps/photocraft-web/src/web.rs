@@ -83,7 +83,10 @@ pub fn start() {
                 canvas,
                 options,
                 Box::new(move |cc| {
-                    PhotocraftApp::setup_context(&cc.egui_ctx, ThemeKind::Pro);
+                    // REV6: the web shell no longer pins Pro — the pre-prefs context boots the
+                    // ModernCanvas default, and the first tick's prefs load (defaults, or a
+                    // migrated saved file) drives the theme from there.
+                    PhotocraftApp::setup_context(&cc.egui_ctx, ThemeKind::ModernCanvas);
                     let inbox: Inbox = Arc::default();
                     let place_inbox: Inbox = Arc::default();
                     let served: Served = Arc::default();
@@ -96,7 +99,10 @@ pub fn start() {
                         photocraft_ui_egui::notices::post(&mut app, i18n::t("Some brush presets could not be loaded"), preset_warnings, true, None);
                     }
                     listen_pen(&pen_target, app.stylus.feed.clone());
-                    app.set_theme(&cc.egui_ctx, ThemeKind::Pro);
+                    // No forced theme: UiState's default (ModernCanvas) holds until the first
+                    // tick applies the loaded preference — a fresh visitor gets the mockup
+                    // look, a migrated save flips proMedium once, explicit picks are kept.
+                    app.apply_theme(&cc.egui_ctx, ThemeKind::ModernCanvas);
                     if let Some(rs) = cc.wgpu_render_state.clone()
                         && !force_cpu
                     {
