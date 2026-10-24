@@ -1,6 +1,6 @@
 # Design — Panel visibility toggle + collapsed-dock inspector rail
 
-Date: 2026-10-24 · Status: draft for peer review · Branch target: `feature/right-panel-collapse`
+Date: 2026-10-24 · Status: REV 2 after sub-agent review (P0s incorporated) · Branch target: `feature/right-panel-collapse`
 
 ## User ask (verbatim intent)
 
@@ -136,3 +136,79 @@ toggle control at its top; when the dock is collapsed (hidden), the rail shows A
 6. Local dev-wasm build (wasm-release profile, lto=false in live agent's Cargo.toml WIP state)
    → trunk serve → agent-browser E2E + screenshots.
 7. Peer code review sub-agent → fixes → push branch.
+
+## REV 2 — review round 1 outcomes (sub-agent audit, INCORPORATED)
+
+Verdict was "needs changes" (3 P0s). All incorporated below; supersedes conflicting earlier text.
+
+- **P0-1 (D1 revised):** popover rows must NOT run `window.toggle.<key>` — Character has no slot
+  in that arm (menus.rs:644-668, its real id is `window.panel.character`), and unchecking
+  Brushes would migrate the whole workspace to customized docking (panel_docking.rs:179-191 +
+  change() committing `docking=Some`). New dispatcher `panel_rail::set_group_shown(app, g, show)`:
+  legacy → `window.panel.<primary>` with explicit `{"show": bool}` (view_cmds.rs:654-685,
+  bypasses #129); customized → show=`window.panel.activate {panel:<first member>}`,
+  hide=`window.panel.group {panel:<first member>, operation:"close"}` (group-level, matches
+  `sync_visibility` projection). Tests must cover Character + Brushes in both modes.
+- **P0-2:** remove the `app.ui.panels.dock = true;` re-asserts in panel_docking.rs:267 and :355 —
+  they resurrect a collapsed dock on every panel command and corrupt Tab/`hidden_by_tab` state.
+  Rail visibility is a pure render gate. Regression tests: dock stays hidden across every
+  popover row + `window.panel.layers` fired from crop_ui.rs:1657 in customized mode.
+- **P0-3 (D5 revised):** keep ONE entry point. lib.rs:2444 becomes
+  `if (chrome && (self.ui.panels.dock || self.ui.panels.rail)) || tabbed_in { panels::right_dock(self, ui); }`;
+  right_dock gates internally: `panel_docking::show` and both `dock_panels` calls behind
+  `panels.dock`; rail block behind the derived `rail_visible` rule (P1-1 below); `dock::persist`
+  stays at the end of right_dock (else popover hides never persist). Pro order (dock column,
+  THEN rail) and Studio order (rail then dock) preserved — panels.rs:1797-1838.
+  `panel_rail::rail()` is called from right_dock, NOT lib.rs (keeps kittest harnesses green).
+- **P1-1:** `rail_visible = panels.rail && !(hidden_by_tab.is_some() && !panels.dock)` —
+  Tab still hides everything; no schema change (do NOT widen hidden_by_tab — it's serialized).
+- **P1-2:** label predicate: customized → `panel_docking::rail_on(app, g)`; legacy →
+  `g.shown(&p) && !app.ui.dock.visible_tabs(g, pro).is_empty()` (all-Closed groups must not
+  produce empty peeks; dock.rs:531-534 skips them).
+- **P1-3 (D3 revised):** egui 0.36.2 `Window::open` takes `&mut bool` (no Option variant —
+  window.rs:167-176); use `let mut open = true; … if !open { clear }`. First frame after open:
+  `ctx.memory area_rect(PEEK_ID)` is None → treat as inside (no insta-close). Clear `panel_peek`
+  on: dock re-show transition, `dock::apply` (like `docking_reveal`, dock.rs:856), workspace
+  switch. Do NOT close on OS-window blur (`input.focused==false` is only for drag-cancel —
+  panel_docking.rs:383).
+- **P1-4:** store anchor (click pos) in `PanelPeek`; `.current_pos(clamped)` on the first frame
+  of each open (window.rs:325-331); `default_pos` is not re-applied with a fixed id. Coordinates
+  in points from canvas/content rect (brush_panel.rs:511-518 precedent), not "screen right".
+- **P1-5 (RTL):** chip geometry derived from the allocated rect; RTL mirrors to
+  `angle: +FRAC_PI_2` with pivot at chip top-right; popup align LEFT_START (LTR) /
+  RIGHT_START (RTL); peek anchored to the rail's actual side. RTL tests via
+  `direction_scope(Dir::Rtl)` asserting `TextShape::visual_bounding_rect()` ⊆ chip rect.
+- **P2 bundle:** toggle button uses `icons::button` (accent states; rail_button has no accent)
+  — icons.rs:185-216; reuse the EXISTING `panel-right` icon (icon_data.rs:105, no new asset, no
+  ATTRIBUTION row); `Group::label()` maps to strings ALREADY translated in the 21 catalogs
+  ("Color & Swatches" etc.); only "Hide Dock"/"Show Dock" are new → add i18n/*.tsv rows for
+  all catalogs + `cargo xtask i18n-coverage` gate; labels elide + ScrollArea fallback for short
+  windows; wrap toggle in `ui.push_id("panel-toggle")` for a stable popup id across modes;
+  `widgets::style_spectrum_popup_menu`; add `window.panel.peek {panel, show}` shell command
+  (automation parity, menus.rs arm pattern); `panel_body` dedupe is its OWN commit (it changes
+  customized-dock scroll: dock.rs:545-553 sets fade.strength=0/#2726 which panel_docking::body
+  lacks).
+- **D8 answers adopted:** (1) group names on the rail; peek window carries the group's TAB PILLS
+  (writing dock_tabs.<g>; no activate-command churn while dock hidden). (2) single floating at a
+  time — yes. (3) no right-click popover on chips. (4) icon-mode height fine; labels mode gets
+  elide+scroll. (5) panels.rail=false hides everything incl. toggle — acceptable, documented.
+  (6) focus-loss close is unconditional but in-app only (no OS blur close).
+- **egui 0.36.2 mechanics (verified signatures):** rotated chip = `allocate_exact_size` +
+  `epaint::TextShape::new(pos, galley, tint).with_angle(-FRAC_PI_2)`; galley via
+  `ctx.fonts_mut(|f| f.layout_no_wrap(...))` (fonts() view is read-only in 0.36 — canvas.rs:538
+  precedent); popup = `egui::Popup::menu(&resp).align(egui::RectAlign::LEFT_START).show(|ui| …)`;
+  focus-loss = `input(|i| i.pointer.any_pressed().then(|| i.pointer.press_origin())` +
+  `memory(|m| m.area_rect(id))` idiom from dock.rs:465-477 + popup rect check.
+- **Branching (revised):** WIP snapshot commit includes all 9 modified + 2 untracked live-agent
+  files EXCEPT the workspace Cargo.toml profile hunk (lto=false is the live agent's pending
+  call — not ours to commit; build parity comes from the pc-build workspace + env overrides
+  `CARGO_PROFILE_WASM_RELEASE_LTO=false CARGO_PROFILE_WASM_RELEASE_CODEGEN_UNITS=16` locally).
+  First feature commit = panel_rail.rs extraction (moves the WIP-touched rail frame block out of
+  panels.rs → eliminates the one true collision zone); never touch dock_panels/toolbar after.
+  Before PR: rebase feature commits onto plain origin/main.
+- **Implementation order (revised):** 1) branch+WIP snapshot → 2) panel_rail extraction with
+  right_dock internal gating + rail_visible (no new UI yet; adjust existing harness tests) →
+  3) headless plumbing: set_group_shown, remove dock re-asserts, panel_peek field + clear
+  points, window.panel.peek command → 4) D1 popover → 5) D2 labels + RTL → 6) D3 peek + focus
+  loss → 7) panel_body dedupe (own commit) → 8) tests D7+P0/P1 regressions, gates, wasm E2E,
+  final review.
