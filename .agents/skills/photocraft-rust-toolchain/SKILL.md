@@ -33,4 +33,5 @@ Use this workflow when setting up or recovering the PhotoCraft development envir
 - [WASM build and target notes](./kb/wasm-and-targets.md): target selection, Trunk profile selection, release optimizer, and useful validation commands.
 - [Browser JavaScript bridge](./kb/browser-js-bridge.md): the in-memory API boundary, wasm-bindgen/typed-array gotchas, and Node-versus-CLI oracle harness.
 - [Codespaces persistence and restore](./kb/codespaces-persistence.md): persistent mount caveats, backup contents, restore steps, and system package recovery.
+- [egui island shell (0.36)](./kb/egui-island-shell.md): the REV6 floating-island shell — inner-margin strips, the two-segment right-side island, the shared fold-animation id, brush-shaped rounded fills, and the E2E tooling truths (agent-browser profiles, localStorage races, VLM-vs-pixel-probes).
 - [Backup script](./scripts/backup-codespaces-toolchain.sh) and [restore script](./scripts/restore-codespaces-toolchain.sh): preserve and rehydrate the Rust/Cargo installation on the persistent workspace mount.

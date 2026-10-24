@@ -148,3 +148,16 @@ Reconciliation per REV5 (design doc) after a fresh-context opus audit:
 - [ ] Remaining follow-ups: customized-docking column animation (needs reveal/dockWidth
       consumption moved into the draw closure), rail_click dead-end when column is
       Shift+Tab-hidden (pre-existing), group_ids dead_code warning (upstream's).
+
+### Phase 1.9 — REV6: modern-canvas visual adoption (DONE, 2026-10-24 session 6)
+
+Owner: "the current result is still quite far off from this mockup … do a full audit
+and polishing round." Shipped: `ModernCanvas` theme = exact mockup tokens (island
+shell via inner-margin strips + painted islands, segment-scheme one-island right
+side, gradient active tool, doc-tab flip + status dot, Segmented pills, divide-y
+dock, radii 3/5/6), default everywhere + one-shot darkTheme migration; ROOT CAUSE of
+the old look = web.rs's boot-time Pro pin (removed). Two opus audit rounds; E2E
+pixel-proven (88/100 VLM on document state; remaining gaps = content differences).
+Design: agent/design/2026-10-24-modern-canvas-visual-adoption.md. Deviations stated
+in HANDOFF (floating Properties, status strip, brand mark). Next: Phase 2 gates on
+owner reaction to the new look.
