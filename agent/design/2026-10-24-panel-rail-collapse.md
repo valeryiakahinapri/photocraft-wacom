@@ -419,3 +419,15 @@ per D1–D9 (panels.rs/panel_docking.rs structurally mine + their visual hunks; 
 shell_commands.rs, canvas.rs, tab_strip.rs, theme.rs, prefs_ui.rs, widgets.rs, docs mostly
 theirs); the merge commit message records the reconciliation. After build: full browser E2E
 re-run (toggle → flyout → re-click → focus-loss → expand) against the NEW command.
+
+---
+
+## REV5 — implementation outcome (2026-10-24, session 5)
+
+Merged per D1–D9 with the audit's four P0s and both P1 rulings applied (separator
+repositioned ±10 under the outer margin; chevrons RTL-swapped like the toolbar's).
+Branch tip 55bc9d00. Every audit E2E item ran green on the baked release bundle except
+the full-screen/RTL/Studio-classic visual matrix (deferred to the kittest/ codespace
+window; the reconciled code paths are shared with what E2E did cover). The
+localStorage `panelLayout.panels` probe made the dock/dock_expanded state machine
+directly readable from the browser — the decisive evidence for the D2 semantic.

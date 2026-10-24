@@ -1,9 +1,12 @@
-# HANDOFF — next-session scope (rewritten 2026-10-24, session 3)
+# HANDOFF — next-session scope (rewritten 2026-10-24, session 5)
 
 New sandbox, new session: bootstrap FIRST, then the scope below.
 Durable truth = `agent-meta` branch on github + /home/sync copies + this file.
-Feature branch: `feature/right-panel-collapse` (tip bc1a67c3) — merged with main's
-bridge commit + 4 session-3 commits (mockup refinement F/G, menus::invoke dispatch fix).
+Feature branch: `feature/right-panel-collapse` (tip 55bc9d00) — session-5 state: merged
+with main's c8105921 (REV5 reconciliation of the TWO parallel rail implementations;
+see agent/design/2026-10-24-panel-rail-collapse.md REV5 + the 3-rev5-review audit in
+the worklog), rail visuals + dock_expanded fold semantics adopted from the live agent,
+all E2E re-proven, native test-compile now verified.
 
 ## Parallel lane status — the GenEditor embed (session 4, separate scope)
 
@@ -37,28 +40,36 @@ Coordination rule unchanged: read-only on each other's trees, git is the shared 
 
 ## Immediate scope
 
-1. **Panel feature — E2E-VERIFIED LIVE, kittests still pending.** Session 3 proved the
-   feature in a real browser (bake → CDP clicks → pixel diffs: toggle collapses the
-   dock, icon opens the peek flyout, re-click/outside-click close it — screenshots in
-   /home/z/logs/e2e2-*.png, mirrored to /home/sync/photocraft-agent/e2e-evidence/).
-   The kittests remain COMPILE-UNVERIFIED for the session-3 rewrite (they route through
-   `menus::invoke` now — the dispatch bug they encoded is fixed) and never EXECUTED:
-   native graphs don't fit the 9.9G local disk; the codespace SIGTERMs big rustc while
-   the live agent occupies it. Same retry options as before (idle-agent rerun / swapfile
-   with user OK / post-handover warm-target run).
-2. **Route B — element-anchored pins on the wgpu canvas** (the designed follow-up,
-   full plan in `agent/kb/pin-webgpu-report.md`): `PhotoCraft.ui({op:"rects"})` bridge
-   command + testid overlay + pin-mode pointer-events. ~300-450 lines. Region pins
-   already work (E2E-verified thread #1); element pins are the upgrade.
-3. **The reviewer loop**: the owner tries <preview>/ (hub) → /storybook (story route!) →
-   region-pins the panel work. GitHub mirror needs a fine-grained Issues-scoped PAT
-   from the owner (never the full work PAT — the baked gh.json is world-readable).
-4. **GitLab mirror**: still needs a fresh token (the old one is revoked).
+1. **Kittest EXECUTION is the last open gate on the panel feature.** Compilation is now
+   PROVEN (session-5 native `cargo check -p photocraft-ui-egui --tests` rc=0 — after
+   fixing E0425: `egui_kittest::kittest::Query` never existed; the helper returns
+   `egui_kittest::Node<'a>`). Running needs either an idle codespace window (preferred;
+   4-core) or a local window with the dev server STOPPED and CARGO_INCREMENTAL=0 (rustc
+   on the ui-egui test unit OOM-kills at 3.9G with the server up).
+2. **Route B — element-anchored pins on the wgpu canvas** (plan in
+   `agent/kb/pin-webgpu-report.md`): `PhotoCraft.ui({op:"rects"})` + testid overlay +
+   pin-mode pointer-events, ~300-450 lines. Region pins still work on the merged build.
+3. **Reviewer loop**: hub → /photocraft (merged build, 30.7MB release-mode bake) →
+   /storybook story route. If the reviewer reports the wasm as slow to load, remember
+   the bake must come from `tools/trunk-bundle.py` (--release, wasm-opt strips the 22MB
+   name section) — a raw `trunk build` is 57MB.
+4. **Next merge with the live agent**: expect more main-side changes; the reconciliation
+   pattern is now established (REV5 in the design doc + the audit checklist). If they
+   touched panels.rs/panel_rail.rs again, re-run the lockstep checklist (column_shown
+   gates, 3-way write-back, peek guard, menus arm gating).
+5. **GitLab mirror**: still needs a fresh token (the old one is revoked).
 
-## This session's load-bearing lessons (kb/review-hub-and-pins.md has the detail)
+## This session's load-bearing lessons (kb entries have the detail)
 
 - python tarfile filter='data' mtime poison → GNU tar pipeline everywhere.
 - UI-level commands = `menus::invoke`, NEVER `app.run` (the engine only catalogs them).
 - The in-canvas mount pattern (web.rs boots by element id — one DOM with annotakit).
 - Sub-agents run builds unless told not to; research prompts must forbid it.
 - Trunk color-env vars (NO_COLOR/CLICOLOR_FORCE) abort rc=2 in 0.1s.
+- Background daemons: the python DOUBLE-FORK is the only pattern that survives bash
+  toolcall boundaries (setsid+nohup+disown dies; verified again this session).
+- bun.lock integrity: a re-packed local tarball dep fails its recorded sha512 — strip
+  the hash from the lock entry rather than fighting bun.
+- Trunk dev vs --release = 22MB name section difference; review bakes use --release.
+- localStorage `panelLayout.panels` is the browser-visible state probe for E2E.
+- Native test checks need the dev server stopped (OOM) — restart via init-fullstack.sh.

@@ -122,3 +122,29 @@ New capability: the review hub (see kb/review-hub-and-pins.md) — /photocraft b
 annotakit /storybook with the app mounted IN the canvas doc; region pins E2E-proven
 against the wgpu UI; Route B (element pins via the bridge overlay) designed and
 scoped as the next slice. AccessKit-on-web verified dead (eframe discards the tree).
+
+### Phase 1.8 — REV5: reconcile the parallel rail implementation (DONE, 2026-10-24 session 5)
+
+The live agent's c8105921 landed the SAME mockup grammar, implemented independently
+(own dock_expanded state + ctx-temp flyout + width-tween + command + tests + kb).
+Reconciliation per REV5 (design doc) after a fresh-context opus audit:
+- [x] Base = ours (show_collapsible store-skip, panel_rail module, per-group peek
+      windows, menus::invoke routing); their exact_size tween REJECTED (audit re-verified
+      it persists mid-glide PanelState garbage their dock_last_width_id temp cannot
+      rescue on a fresh session).
+- [x] Adopted: dock_expanded semantic split (fold = persisted preference, survives Tab
+      round-trips — E2E-proven via the localStorage panelLayout.panels probe), rail
+      visuals (44/52 canvas island, RTL chevrons + labels + hairline), toolbar tween,
+      canvas/tab_strip/theme/prefs/widgets polish, shell command, their tests (ported),
+      i18n rows their commit omitted (2 keys x 21 catalogs).
+- [x] Merge commit 86d78db7 + kb amendment 38b1ded6 + test-type fix 55bc9d00 (tip).
+- [x] E2E re-proven on the merged build: fold/unfold, peek open/Escape/close, expand
+      returns pixel-identical, settled frames identical (no re-dispatch loop), Shift+Tab
+      independence, reload persistence, zero console errors. Evidence:
+      /home/sync/photocraft-agent/e2e-r5/ (13 screenshots + this worklog).
+- [x] Native test-compile now VERIFIED on this branch (first time; caught E0425
+      kittest::Query -> egui_kittest::Node). Kittest EXECUTION still parked (needs an
+      idle codespace window or RAM-safe local window with the dev server stopped).
+- [ ] Remaining follow-ups: customized-docking column animation (needs reveal/dockWidth
+      consumption moved into the draw closure), rail_click dead-end when column is
+      Shift+Tab-hidden (pre-existing), group_ids dead_code warning (upstream's).

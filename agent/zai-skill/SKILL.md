@@ -139,3 +139,30 @@ Z.ai sandbox (control plane)                GH Codespace (build plane)
   no addon toolbar on the root route (navigate to the story route), eslint OOMs on
   public/ bundles (ignore them), next.config edits need a dev-server restart.
 - Trunk aborts rc=2 on NO_COLOR=1 AND CLICOLOR_FORCE=0 (strip all color env vars).
+- **Parallel-agent implementation collisions** (session 5): when two agents implement
+  the same feature on different branches, auto-merge "success" is a trap — their
+  5-param signatures and early-return arms slide in without conflict markers. Write a
+  reconciliation decision (D1–D9-style), audit it with a fresh-context sub-agent, then
+  resolve: conflict markers AND the auto-merged landmines (grep for their identifiers).
+- **Background daemons**: the python DOUBLE-FORK is the only launcher that survives bash
+  toolcall boundaries on this platform (setsid+nohup+disown dies silently mid-write;
+  verified twice). Parameterized: scripts/daemon-restore.py <script> <log>.
+- **Trunk dev vs --release**: dev-mode keeps a 22MB wasm `name` custom section (57MB
+  bundle); --release runs wasm-opt which strips it (30.7MB). Review bakes always use
+  tools/trunk-bundle.py (--release). The committed profile's strip="debuginfo" does NOT
+  remove the name section — that's trunk-level.
+- **bun.lock + local tarball deps**: a re-packed tarball fails the lockfile's sha512
+  (IntegrityCheckFailed). Fix = surgically remove the sha512 element from the lock
+  entry; bun re-installs and re-hashes cleanly.
+- **Browser-visible state probe**: photocraft persists panels state to
+  localStorage `photocraft.preferences` → `panelLayout.panels` (snake_case keys) —
+  reading dock/dock_expanded from the page is the decisive E2E evidence when two states
+  are visually identical by design.
+- **Native test checks vs the dev server**: rustc on the ui-egui test unit needs ~3G;
+  with the Next.js dev server up it OOM-kills (signal 9). Stop the server (pkill
+  'next dev'), run `CARGO_INCREMENTAL=0 cargo check -p photocraft-ui-egui --tests`,
+  restart via init-fullstack.sh. kittest type facts: helpers return
+  `egui_kittest::Node<'a>`; `kittest::Query` does not exist in 0.36.2.
+- **Warm-cache restores may mass-rebuild a ~140-crate subset** (registry mtime drift
+  between the toolchain and tree tars). Don't debug it — let one convergence build run
+  (2-3 min), then the lane is warm again. True noop after that ≈ seconds.

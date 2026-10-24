@@ -88,3 +88,25 @@ caught it: baked the app, clicked the real rail toggle, read the status bar, fix
 call sites, re-baked, re-clicked — the dock collapsed. **The E2E loop (bake →
 agent-browser CDP clicks → pixel-diff + status-bar reads) is now the only execution
 proof that exists for the panel feature; the kittests still need the codespace lane.**
+
+## Session-5 hub repairs + probes
+
+- Container recycle wiped the locally-packed `storybook-annotakit-0.6.16.tgz` that
+  package.json points at → `bun install` ENOENT. Reproduce: clone
+  melodietexoss/storybook-annotakit, `npm pack --pack-destination /home/z/storybook-annotakit`
+  (exact path package.json expects), strip the stale sha512 from the bun.lock entry
+  (third array element on the `"storybook-annotakit"` line), re-run bun install.
+- The storybook story is hash-agnostic (fetches /photocraft/ and regex-parses the
+  current hashed filename) — bundle changes need NO storybook rebuild, only the
+  /photocraft bake + the /storybook/photocraft copy refresh (scripts/bake-photocraft.sh).
+- E2E state probe: `localStorage['photocraft.preferences']` → `.panelLayout.panels`
+  carries `dock`, `dock_expanded` (snake_case) — read/write via agent-browser eval;
+  this proved the fold-survives-Shift+Tab semantic that pixels cannot distinguish.
+- Rail pixel location: canvas|rail|dock when expanded (rail ≈ x944-996 at 1280w);
+  canvas|rail when folded (rail slides to the far right). Icon rows sit at a 32px
+  pitch from y≈136; the fold toggle is the y≈94 cluster. Scripts/rail-scan.py finds
+  glyph rows by median-deviation (dark-theme safe; plain dark-pixel counting fails).
+- egui kittest Q&A for this stack: `icons::button` publishes its tl! tooltip as the
+  a11y label → get_by_label("Collapse Panel Dock") works in kittests; VLM reads
+  screenshots via `zai.createChatCompletionVision` (the plain chat endpoint rejects
+  image content types).

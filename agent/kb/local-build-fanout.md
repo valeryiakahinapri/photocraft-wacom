@@ -127,3 +127,18 @@ from the codespace tar (NO git inside).
 
 Scripts (mirrored in agent/scripts + /home/sync): pull_cache.py (transfer daemon),
 sync-build.sh, serve_dist.py, run_tests.py, add_i18n_rows.py, zstd-extract.py.
+
+## Session-5 additions (restore-warmth + bundle size)
+
+- Restore from the staged plain tars can mass-rebuild a ~140-crate subset (registry
+  mtimes drift between toolchain.tar and pc.tar staging times). This is EXPECTED:
+  run one convergence build (~2-3 min) after restore; do not debug the rebuild list.
+  After convergence, true noop ≈ seconds and ui-egui edits ≈ 70-90s + link.
+- `trunk build` (dev) leaves the wasm `name` custom section in place: 57MB bundle,
+  22.4MB of it names. `trunk build --release` runs wasm-opt which strips names:
+  30.7MB. Same hash prefix for the JS glue (wasm-bindgen output unchanged). ALWAYS
+  review-bake via agent/scripts/trunk-bundle.py (--release, env-stripped, daemonized).
+- Merge-conflict reality: even a "1 file conflicted" merge had their 5-param
+  `panel_docking::show`, early-return menus arm, and `dock_last_width_id` machinery
+  land via AUTO-MERGE — grep their diff for identifiers after any auto-merge and
+  revert per the reconciliation decision, keeping the visual hunks.
