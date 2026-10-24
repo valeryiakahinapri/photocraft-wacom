@@ -238,20 +238,24 @@ mod tests {
         let cloud = CloudLibrary {
             entries: Arc::default(),
             open: Arc::new(|_| {}),
-            identity: Arc::new(
+            identity: Arc::new(Mutex::new(
                 [("photo.png".to_string(), "asset-7".to_string())].into_iter().collect(),
-            ),
+            )),
             pending: Arc::default(),
         };
         assert_eq!(cloud.identity_of("photo.png"), Some("asset-7".to_string()));
         assert_eq!(cloud.identity_of("other.psd"), None);
+        let pending_is = |want: Option<&str>| {
+            let guard = cloud.pending.lock().unwrap_or_else(|e| e.into_inner());
+            *guard == want.map(str::to_string)
+        };
         cloud.arm_save("photo.png");
-        assert_eq!(*cloud.pending.lock().unwrap(), Some("asset-7".to_string()));
+        assert!(pending_is(Some("asset-7")));
         cloud.clear_pending();
-        assert_eq!(*cloud.pending.lock().unwrap(), None);
+        assert!(pending_is(None));
         // Arming an identity-less doc is a no-op (the write mints).
         cloud.arm_save("other.psd");
-        assert_eq!(*cloud.pending.lock().unwrap(), None);
+        assert!(pending_is(None));
     }
 
     #[test]
