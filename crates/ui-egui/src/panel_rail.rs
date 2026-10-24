@@ -108,6 +108,16 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
                         }
                     }
                 }
+            } else {
+                // Collapsed dock: the active groups list vertically, their names rotated a
+                // quarter turn (bottom-up, mirrored top-down in a right-to-left UI), each
+                // click opening the group as a floating peek (`peek_window`).
+                let scroll = egui::ScrollArea::vertical().id_salt("panel-rail-labels").auto_shrink([false, false]);
+                scroll.show(ui, |ui| {
+                    for g in app.ui.dock.order() {
+                        label_chip(app, ui, &t, g, rw - 8.0);
+                    }
+                });
             }
         });
 }
@@ -133,4 +143,54 @@ fn visibility_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
             }
         });
     }
+}
+
+/// One vertical (90°) rail label for a panel group, Photoshop's collapsed-dock style: the name
+/// reads bottom-up in a left-to-right UI, mirrored top-down in a right-to-left one. Clicking
+/// opens the group as a floating peek ([`peek_window`]); the label stays accent-tinted while its
+/// group is the one peeked. `width` is the rail's inner width.
+fn label_chip(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens, g: Group, width: f32) {
+    // The same groups the icon rail would light up (panel_docking's projection in customized
+    // mode, plain visibility minus all-Closed groups in the legacy one).
+    let active = if app.ui.docking.is_some() {
+        crate::panel_docking::rail_on(app, g)
+    } else {
+        g.shown(&app.ui.panels) && !app.ui.dock.visible_tabs(g, t.pro).is_empty()
+    };
+    if !active {
+        return;
+    }
+    let peeked = app.ui.panel_peek.as_ref().is_some_and(|peek| peek.group == g);
+    let font = egui::FontId::proportional(11.5);
+    let galley = ui.ctx().fonts_mut(|f| f.layout_no_wrap(tl!(g.label()).to_owned(), font, egui::Color32::PLACEHOLDER));
+    let (along, across) = (galley.rect.width(), galley.rect.height());
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, along + 8.0), egui::Sense::click());
+    if peeked {
+        ui.painter().rect_filled(rect, t.radius_sm, t.accent_soft);
+        ui.painter().rect_stroke(rect, t.radius_sm, egui::Stroke::new(1.0, t.accent_border), egui::StrokeKind::Inside);
+    } else if resp.hovered() {
+        ui.painter().rect_filled(rect, t.radius_sm, t.hover);
+    }
+    // The text color rides on the shape (the galley holds placeholders), so the hover state is
+    // decided here, after allocation, without relaying the text out.
+    let tint = if peeked {
+        t.accent_text
+    } else if resp.hovered() {
+        t.text
+    } else {
+        t.text_faint
+    };
+    let pad = 4.0;
+    let (pos, angle) = if crate::direction::is_rtl() {
+        (egui::pos2(rect.left() + (width + across) / 2.0, rect.top() + pad), std::f32::consts::FRAC_PI_2)
+    } else {
+        (egui::pos2(rect.left() + (width - across) / 2.0, rect.bottom() - pad), -std::f32::consts::FRAC_PI_2)
+    };
+    ui.painter().add(egui::epaint::TextShape::new(pos, galley, tint).with_angle(angle));
+    if resp.clicked() {
+        let tab = *g.tab_mut(&mut app.ui.dock_tabs);
+        let anchor = ui.ctx().pointer_interact_pos().or_else(|| ui.ctx().pointer_latest_pos());
+        app.ui.panel_peek = Some(crate::state::PanelPeek { group: g, tab, anchor, first: true });
+    }
+    resp.on_hover_text(tl!(g.label())).on_hover_cursor(egui::CursorIcon::PointingHand);
 }
