@@ -59,7 +59,7 @@ fn app_ui_run(app: &mut PhotocraftApp, id: &str, params: Value) -> Value {
 
 /// The rail icon button of `g` (the peek window's title carries the same label as a plain
 /// text widget, so pin the role to the button).
-fn icon_button<'a>(h: &'a Harness<'static, PhotocraftApp>, g: Group) -> egui_kittest::kittest::Query<'a, 'static> {
+fn icon_button<'a>(h: &'a Harness<'static, PhotocraftApp>, g: Group) -> egui_kittest::Node<'a> {
     h.query_by_role_and_label(egui::accesskit::Role::Button, g.label()).unwrap_or_else(|| panic!("no rail icon for {g:?}"))
 }
 
