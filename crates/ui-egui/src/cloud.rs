@@ -13,7 +13,7 @@
 //! loop and the save-name logic run (and are tested) on every target; only
 //! the bridge itself lives in the web shell.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use crate::PhotocraftApp;
@@ -34,16 +34,32 @@ pub struct CloudEntry {
 /// normal open path (the shell's inbox), so the asset opens as a new
 /// document tab. The closure re-fetches the browser window on each call
 /// (the `download` precedent) so it captures nothing non-Send.
+///
+/// PHASE-B identity state (shared with the web-shell bridge):
+/// `identity` maps doc name → originating asset id (first-wins, pruned to
+/// the live docs, re-keyed to the save name on identity writes);
+/// `pending` is the consume-on-write slot the save paths arm so the
+/// bridge can echo the id on the `saved` message (an update-in-place,
+/// not a sibling mint, on the host side).
 pub struct CloudLibrary {
     /// The listing the host last pushed (File ▸ Open from Library's rows).
     pub entries: Arc<Mutex<Vec<CloudEntry>>>,
     /// Ask the host to open an asset by id.
     pub open: Arc<dyn Fn(&str) + Send + Sync>,
+    /// doc name → the library asset the doc was opened from.
+    pub identity: Arc<Mutex<HashMap<String, String>>>,
+    /// The asset id armed for the next synchronous write.
+    pub pending: Arc<Mutex<Option<String>>>,
 }
 
 impl Clone for CloudLibrary {
     fn clone(&self) -> Self {
-        Self { entries: Arc::clone(&self.entries), open: Arc::clone(&self.open) }
+        Self {
+            entries: Arc::clone(&self.entries),
+            open: Arc::clone(&self.open),
+            identity: Arc::clone(&self.identity),
+            pending: Arc::clone(&self.pending),
+        }
     }
 }
 
@@ -52,6 +68,28 @@ impl CloudLibrary {
     /// beats a panic).
     pub fn listing(&self) -> Vec<CloudEntry> {
         self.entries.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// PHASE-B — the asset a document was opened from, if any.
+    pub fn identity_of(&self, doc_name: &str) -> Option<String> {
+        self.identity.lock().unwrap_or_else(|e| e.into_inner()).get(doc_name).cloned()
+    }
+
+    /// PHASE-B — arm the pending slot for a document's next synchronous
+    /// write (no-op without an identity — the write then mints, today's
+    /// behavior). LOAD-BEARING: the web shell installs neither `save_file`
+    /// nor `background_jobs`, so `save_as_with` writes inline on the UI
+    /// thread and the slot is consumed within the same call (see
+    /// EMBED-DESIGN-PHASEB F2/F8).
+    pub fn arm_save(&self, doc_name: &str) {
+        let id = self.identity_of(doc_name);
+        *self.pending.lock().unwrap_or_else(|e| e.into_inner()) = id;
+    }
+
+    /// PHASE-B — clear the armed slot (a save path that failed before its
+    /// write; the next write must never echo a stale id).
+    pub fn clear_pending(&self) {
+        *self.pending.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 }
 
@@ -98,6 +136,41 @@ pub fn cloud_save_name(doc_name: &str, used: &mut HashSet<String>) -> String {
     unreachable!("the loop returns once a free name is found")
 }
 
+/// The layered identity formats — the saves that carry a doc's
+/// source-of-truth (and never park in a format prompt, so their writes
+/// land inline: EMBED-DESIGN-PHASEB F2).
+fn is_identity_format(ext: &str) -> bool {
+    matches!(ext, "psd" | "psb" | "pcraft" | "ora")
+}
+
+/// PHASE-B — arm the ACTIVE doc's identity for a save to `path`, but only
+/// when the path's format is one of the layered identity formats: they
+/// never park in a format prompt, so `save_as_with`/`save_in_place` write
+/// inline and the slot is consumed in the same call (EMBED-DESIGN-PHASEB
+/// F2). A flat-format save (jpeg/png/tga…) is an export-shaped copy — it
+/// correctly MINTS, so it must never consume an identity.
+pub fn arm_save_for_path(app: &PhotocraftApp, path: &str) {
+    let Some(cloud) = app.services.cloud.as_ref() else { return };
+    let ext = std::path::Path::new(path)
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if !is_identity_format(&ext) {
+        return;
+    }
+    let Some(state) = app.session.active() else { return };
+    let name = state.doc.name.clone();
+    cloud.arm_save(&name);
+}
+
+/// PHASE-B — clear the armed slot (a save path that failed before its
+/// write; the next write must never echo a stale id).
+pub fn clear_pending(app: &PhotocraftApp) {
+    if let Some(cloud) = app.services.cloud.as_ref() {
+        cloud.clear_pending();
+    }
+}
+
 /// File ▸ Save to Library (EMBED-DESIGN-CLOUD B3): activate every open
 /// document in order and save it under its cloud name — an explicit path
 /// skips the save dialog, and the shell's `write` service hands the bytes
@@ -114,12 +187,22 @@ pub fn save_all_to_library(app: &mut PhotocraftApp) -> (usize, usize) {
             failed += 1;
             continue;
         }
+        // PHASE-B: arm this doc's identity so the write echoes the asset id
+        // (the host updates the asset in place). The doc name here is the
+        // PRE-save name — the identity map still carries it (the re-key
+        // happens inside the write itself).
+        if let Some(cloud) = app.services.cloud.as_ref() {
+            cloud.arm_save(&doc_name);
+        }
         match app.save_as_with(Some(path), crate::FormatChoices::default()) {
             Ok(_) => saved += 1,
             Err(e) => {
                 failed += 1;
                 app.ui.status = e;
                 app.ui.status_error = true;
+                if let Some(cloud) = app.services.cloud.as_ref() {
+                    cloud.clear_pending();
+                }
             }
         }
     }
@@ -132,6 +215,43 @@ mod tests {
 
     fn used(names: &[&str]) -> HashSet<String> {
         names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn identity_formats_are_the_layered_sources() {
+        // The F2 gate: only layered formats arm the identity echo — a flat
+        // save (jpeg/png/tga…) is an export-shaped copy and must mint.
+        assert!(is_identity_format("psd"));
+        assert!(is_identity_format("psb"));
+        assert!(is_identity_format("pcraft"));
+        assert!(is_identity_format("ora"));
+        assert!(!is_identity_format("png"));
+        assert!(!is_identity_format("jpg"));
+        assert!(!is_identity_format("tga"));
+        assert!(!is_identity_format(""));
+    }
+
+    #[test]
+    fn identity_state_arms_and_consumes() {
+        // The CloudLibrary identity/pending laws (first-wins insert is the
+        // bridge's arm; here: arm → consume → re-arm clears).
+        let cloud = CloudLibrary {
+            entries: Arc::default(),
+            open: Arc::new(|_| {}),
+            identity: Arc::new(
+                [("photo.png".to_string(), "asset-7".to_string())].into_iter().collect(),
+            ),
+            pending: Arc::default(),
+        };
+        assert_eq!(cloud.identity_of("photo.png"), Some("asset-7".to_string()));
+        assert_eq!(cloud.identity_of("other.psd"), None);
+        cloud.arm_save("photo.png");
+        assert_eq!(*cloud.pending.lock().unwrap(), Some("asset-7".to_string()));
+        cloud.clear_pending();
+        assert_eq!(*cloud.pending.lock().unwrap(), None);
+        // Arming an identity-less doc is a no-op (the write mints).
+        cloud.arm_save("other.psd");
+        assert_eq!(*cloud.pending.lock().unwrap(), None);
     }
 
     #[test]
