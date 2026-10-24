@@ -166,6 +166,7 @@ mod page_keys;
 pub mod paint_mouse;
 pub mod palette;
 mod panel_docking;
+pub(crate) mod panel_rail;
 pub mod panels;
 pub mod parity;
 pub mod patch_preview;
@@ -2441,7 +2442,7 @@ impl eframe::App for PhotocraftApp {
         if (chrome && self.ui.panels.toolbar) || tabbed_in {
             panels::toolbar(self, ui);
         }
-        if (chrome && self.ui.panels.dock) || tabbed_in {
+        if (chrome && (self.ui.panels.dock || self.ui.panels.rail)) || tabbed_in {
             panels::right_dock(self, ui);
         }
         let t = theme::Tokens::get(&ctx);
