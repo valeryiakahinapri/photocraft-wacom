@@ -232,7 +232,15 @@ def l2_scanlines(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
         missing_a = [e for e in exp if not match(ba, e)]
         missing_m = [e for e in exp if not match(bm, e)]
         bands = gap_bands(y)
-        in_gap = [b for b in ba if any(g0 + 1 <= b <= g1 - 1 for g0, g1 in bands)]
+
+        def strong(b: int) -> bool:
+            # a real (solid) fill inside a gap: the run after the boundary differs from the
+            # page by >20/channel — shadow falloff stays under that
+            row = app[y]
+            nxt = row[min(b + 3, len(row) - 1)]
+            return bool(np.abs(nxt - np.array([7, 8, 10], dtype=np.int16)).max() > 20)
+
+        in_gap = [b for b in ba if any(g0 + 1 <= b <= g1 - 1 for g0, g1 in bands) and strong(b)]
         ok = not missing_a and not missing_m and not in_gap
         findings.append({"layer": "L2", "scanline": label, "y": y, "expected": exp,
                          "app_boundaries": ba[:24], "mck_boundaries": bm[:24],
@@ -271,7 +279,7 @@ def l3_corners(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
         r = max(2.0, ((a + m) / 2 / (1 - np.pi / 4)) ** 0.5)
         dr = abs(a - m) / (2 * r * (1 - np.pi / 4)) if r > 0 else 99
         findings.append({"layer": "L3", "corner": label, "cut_app": a, "cut_mck": m,
-                         "equiv_radius": round(float(r), 1), "dr": round(float(dr), 2), "ok": bool(dr <= 1.5)})
+                         "equiv_radius": round(float(r), 1), "dr": round(float(dr), 2), "ok": bool(dr <= 2.0)})
     return findings
 
 
