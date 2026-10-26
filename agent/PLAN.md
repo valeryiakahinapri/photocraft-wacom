@@ -161,3 +161,25 @@ pixel-proven (88/100 VLM on document state; remaining gaps = content differences
 Design: agent/design/2026-10-24-modern-canvas-visual-adoption.md. Deviations stated
 in HANDOFF (floating Properties, status strip, brand mark). Next: Phase 2 gates on
 owner reaction to the new look.
+
+
+### Phase 1.10 — REV7: bezel-free second pass + the A/B oracle (DONE, 2026-10-26 session 7)
+
+Owner: "updated mockup — bezel-free, shade-as-boundary, bigger radius, right panel +
+toggle toolbar TOGETHER; build pixel-exactness between egui and the mockup." Shipped:
+(1) the port onto upstream's egui 0.37 main (8 conflicts resolved; the owner's
+"still the same" run had been the upstream-only build); (2) REV7 per the updated
+mockup — measured token sheet (#3B9CF6 primary; browser-rasterized, converters
+retired), radius ladder 6/7/9/12, bezel-free law (window/menu strokes → hairline,
+all card strokes dead), one-surface right side (seam hairline + segment stroke +
+shadow-bleed all gone via half-plane shadow clips), the dark workspace island with
+transparent tab strip + pill_fill active tabs + floating 32pt status pill (status
+bar retired from the bottom strip), toolbar 80/48 literal islands with the footer
+collapse toggle, flush divide-y dock cards, mockup-true canvas scrollbars;
+(3) **the oracle**: mockup /oracle route (mirror list + pinned solids) + app
+?oracle=1 seed + tools/oracle/run.py (L1-L4, isolation protocol, measured sheet) —
+PASS 0/48 on default state; VLM 88/100 (content-only gaps). Audits: 2 design
+rounds (32+11 findings) + 1 implementation round (P0 palette-not-landed, inverted
+clips, stuck-collapse footer — all fixed) + the oracle-driven fix loop (scrollbars,
+pill height/corners, seed determinism). E2E: fold/expand/⇧Tab lifecycle green,
+console clean. Next: Phase 2 gates on owner reaction; oracle states 2-4.
