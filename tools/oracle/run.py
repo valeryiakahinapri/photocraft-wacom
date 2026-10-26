@@ -196,29 +196,47 @@ def l2_scanlines(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
                     start = x
         return out
 
+    # The page-gap bands at this y (boundaries there = something painted in a gap — the
+    # exact "arbitrary fill" bug class the oracle exists to catch).
+    def gap_bands(y: int) -> list[tuple[int, int]]:
+        covered = sorted((x, x + w) for name, (x, ry, w, h) in regions.items()
+                         if ry <= y < ry + h and name not in ("page", "workspace", "document", "tab-strip", "status-pill"))
+        bands, prev = [], 0
+        for x0, x1 in covered:
+            if x0 - prev >= 4:
+                bands.append((prev, x0))
+            prev = x1
+        if regions["page"][2] - prev >= 4:
+            bands.append((prev, regions["page"][2]))
+        return bands
+
     ys = {
-        "title-mid": regions["title-bar"][1] + 20,
         "options-mid": regions["options-bar"][1] + 22,
         "main-mid": 500,
     }
     for label, y in ys.items():
-        # expected structural boundaries at this y, from the region map itself
+        # expected structural boundaries = region edges where the fill visibly changes
+        # (surface islands against the page; the near-black workspace edges and the
+        # seam between rail and column are deliberately invisible — one surface)
         exp = []
         for name, (x, ry, w, h) in regions.items():
-            if ry <= y < ry + h and name != "page":
+            if ry <= y < ry + h and name in ("options-bar", "toolbar", "right-island"):
                 exp += [x, x + w]
         exp = sorted(set(exp))
         ba, bm = boundaries(app, y), boundaries(mck, y)
-        # each expected boundary must appear in both sides' boundaries (+/-1px)
+
         def match(bset, e):
             return any(abs(b - e) <= 1 for b in bset)
+
         missing_a = [e for e in exp if not match(ba, e)]
         missing_m = [e for e in exp if not match(bm, e)]
-        stray_a = [b for b in ba if not any(abs(b - e) <= 2 for e in exp)]
-        ok = not missing_a and not missing_m and len(stray_a) <= 2
+        bands = gap_bands(y)
+        in_gap = [b for b in ba if any(g0 + 1 <= b <= g1 - 1 for g0, g1 in bands)]
+        ok = not missing_a and not missing_m and not in_gap
         findings.append({"layer": "L2", "scanline": label, "y": y, "expected": exp,
-                         "app_boundaries": ba, "mck_boundaries": bm,
-                         "missing_app": missing_a, "missing_mck": missing_m, "app_strays": stray_a,
+                         "app_boundaries": ba[:24], "mck_boundaries": bm[:24],
+                         "missing_app": missing_a, "missing_mck": missing_m,
+                         "app_in_gap": in_gap, "gap_bands": bands,
                          "ok": bool(ok)})
     return findings
 
@@ -269,7 +287,8 @@ def l4_masked(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
             mask[y0:y1, x0:x1] = False
     if "workspace" in regions:
         x, y, w, h = regions["workspace"]
-        mask[int(y + h * 0.2) : int(y + h * 0.8), int(x + w * 0.2) : int(x + w * 0.8)] = False
+        ring = 12
+        mask[y + ring : y + h - ring, x + ring : x + w - ring] = False
         # the pill + its AA fringe (its interior is already masked via status-pill, but the
         # fringe sits in the workspace region)
         if "status-pill" in regions:

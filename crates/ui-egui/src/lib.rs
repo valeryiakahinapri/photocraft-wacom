@@ -1064,11 +1064,19 @@ impl PhotocraftApp {
     /// prefs) exist; `file.new` with explicit dimensions bypasses the New Document dialog.
     pub fn oracle_seed(&mut self) {
         self.ui.panels.toolbar_double = true;
+        // The floating Properties card is a deliberate shell deviation (mockup docks it) —
+        // the oracle state compares the chrome skeleton, so it must be closed.
+        self.ui.panels.properties = false;
         let _ = self.run("file.new", serde_json::json!({ "width": 1920, "height": 1080 }));
-        // Fit on open: a 100%-zoom 1920x1080 doc would show canvas scrollbars the mockup
-        // has no counterpart for — the oracle state must be scrollbar-free.
+        // Zoom with slack on BOTH axes (a fit leaves one axis at zero slack, which shows a
+        // canvas scrollbar the mockup has no counterpart for): 45% of 1920x1080 sits well
+        // inside the workspace with margins on every side.
         if let Some(i) = self.session.active_index() {
-            self.ui.views[i].fit_pending = true;
+            self.ui.views[i].zoom = 0.45;
+            self.ui.views[i].doc_size = [1920, 1080];
+            self.ui.views[i].zoom_animating = false;
+            self.ui.views[i].zoom_anchor = None;
+            self.ui.views[i].fit_pending = false;
         }
     }
     pub fn new(mut session: Session, mut services: Services) -> Self {
