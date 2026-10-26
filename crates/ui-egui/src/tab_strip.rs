@@ -63,7 +63,7 @@ pub fn overflow_button(ui: &mut Ui, id: egui::Id, r: Rect, tip: &str, labels: &[
     let mut paint_ui = ui.new_child(egui::UiBuilder::new().max_rect(r));
     paint_ui.set_clip_rect(r.intersect(ui.clip_rect()));
     if resp.hovered() {
-        paint_ui.painter().rect_filled(r.shrink2(vec2(1.0, 3.0)), t.radius_sm, t.hover.gamma_multiply(0.6));
+        paint_ui.painter().rect_filled(r.shrink2(vec2(1.0, 3.0)), if t.islands { t.radius as u8 } else { t.radius_sm as u8 }, t.hover.gamma_multiply(0.6));
     }
     crate::icons::paint(&paint_ui, r, "chevrons-right", 12.0, if resp.hovered() { t.text } else { t.text_dim });
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), tip));

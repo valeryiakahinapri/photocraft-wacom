@@ -238,19 +238,28 @@ fn tool_flyout_release(row: Rect, pointer: Option<Pos2>, released: bool, from_bu
 
 pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
-    let (w1, bx, m) = if t.pro { (40.0, 30.0, 5i8) } else { (50.0, 36.0, 7i8) };
+    let (w1, bx, m) = if t.pro { (40.0, 30.0, 5i8) } else if t.islands { (56.0, 32.0, 6i8) } else { (50.0, 36.0, 7i8) };
     let sections = visible_sections(&app.session.prefs().toolbar.hidden);
-    // Two columns when the header chevron asks for them; a column that doesn't fit scrolls.
+    // Two columns when the footer toggle asks for them; a column that doesn't fit scrolls.
     let double = app.ui.panels.toolbar_double;
-    let target_width = if double { w1 + bx + 2.0 } else { w1 };
+    // REV7 (R2-3): the island widths are the mockup's literals — 80 expanded (2×32 + 4 gap +
+    // 2×6 padding), 48 collapsed — animated between states; flat shells keep the old math.
+    let target_width = if t.islands {
+        if double { 80.0 } else { 48.0 }
+    } else if double {
+        w1 + bx + 2.0
+    } else {
+        w1
+    };
     let w = ui.ctx().animate_value_with_time(egui::Id::new("toolbar-width"), target_width, 0.22);
-    // The island shell (REV6): the strip paints the page gaps (8pt at the screen edge, 4pt
-    // toward the canvas); the body paints the island and keeps the old content padding.
+    // The island shell (REV7): the strip paints the page gaps (8pt at the screen edge, 4pt
+    // toward the canvas) around the animated island; the body paints the island with the
+    // mockup's 6pt content padding.
     let (ml, mr) = if crate::direction::is_rtl() { (4, 8) } else { (8, 4) };
     crate::direction::start_panel("toolbar")
         .resizable(false)
         .show_separator_line(!t.islands)
-        .exact_size(w + 8.0 + if t.islands { 12.0 } else { 0.0 })
+        .exact_size(w + if t.islands { 12.0 } else { 8.0 })
         .frame(if t.islands {
             egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: ml, right: mr, top: 4, bottom: 8 })
         } else {
@@ -263,14 +272,18 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 
                 // Toolbar width is a user preference, not a Pro-only feature.
                 // Keep the same hit target in every theme (including RTL layouts).
-                let (cr, resp) = ui.allocate_exact_size(vec2(bx, 14.0), Sense::click());
-                let (shrink, grow) = if crate::direction::is_rtl() { ("chevrons-right", "chevrons-left") } else { ("chevrons-left", "chevrons-right") };
-                icons::paint(ui, cr, if double { shrink } else { grow }, 11.0, if resp.hovered() { t.text } else { t.text_faint });
-                resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Toolbar")));
-                if resp.clicked() {
-                    app.ui.panels.toolbar_double = !double;
+                // REV7: under islands the toggle lives in the footer (the mockup's
+                // PanelLeftClose/PanelLeftOpen at the bottom), not at the top.
+                if !t.islands {
+                    let (cr, resp) = ui.allocate_exact_size(vec2(bx, 14.0), Sense::click());
+                    let (shrink, grow) = if crate::direction::is_rtl() { ("chevrons-right", "chevrons-left") } else { ("chevrons-left", "chevrons-right") };
+                    icons::paint(ui, cr, if double { shrink } else { grow }, 11.0, if resp.hovered() { t.text } else { t.text_faint });
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Toolbar")));
+                    if resp.clicked() {
+                        app.ui.panels.toolbar_double = !double;
+                    }
+                    ui.add_space(4.0);
                 }
-                ui.add_space(4.0);
                 // Subtle violet wash at the bottom of the toolbar.
                 let full = ui.max_rect();
                 if !t.bevel && !t.pro && !t.islands && t.dark() {
@@ -286,7 +299,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     mesh.add_triangle(0, 2, 3);
                     ui.painter().add(mesh);
                 }
-                ui.spacing_mut().item_spacing = vec2(2.0, 3.0);
+                ui.spacing_mut().item_spacing = if t.islands { vec2(4.0, 4.0) } else { vec2(2.0, 3.0) };
                 let flyout_id = egui::Id::unique("tool-flyout");
                 let held_id = flyout_id.with("held");
                 if ui.input(|i| i.pointer.any_pressed()) {
@@ -473,8 +486,10 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                 });
                             }
                         }
-                        if icons::button(ui, "ellipsis", bx, false, tl!("Edit Toolbar…")).clicked() {
-                            let _ = crate::menus::invoke(app, &ctx, "edit.toolbar", json!({}));
+                        if !t.islands {
+                            if icons::button(ui, "ellipsis", bx, false, tl!("Edit Toolbar…")).clicked() {
+                                let _ = crate::menus::invoke(app, &ctx, "edit.toolbar", json!({}));
+                            }
                         }
                         reveal_focused_control(ui);
                     });
@@ -483,6 +498,28 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 // UI it is in, and the chips moved over by its width (#7316).
                 color_chips(app, ui, double, full.width());
                 ui.add_space(8.0);
+
+                // REV7 footer (islands): Edit Toolbar + the collapse toggle — the mockup's
+                // fixed footer pinned below the scrolling tools (`mt-1 w-full pt-1`).
+                if t.islands {
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
+                        if icons::button(ui, "ellipsis", bx, false, tl!("Edit Toolbar…")).clicked() {
+                            let _ = crate::menus::invoke(app, &ctx, "edit.toolbar", json!({}));
+                        }
+                        let (close, open) = if crate::direction::is_rtl() {
+                            ("panel-right-close", "panel-right-open")
+                        } else {
+                            ("panel-left-close", "panel-left-open")
+                        };
+                        let (cr, resp) = ui.allocate_exact_size(vec2(bx, bx), Sense::click());
+                        icons::paint(ui, cr, if double { close } else { open }, 14.0, if resp.hovered() { t.text } else { t.text_faint });
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Toolbar")));
+                        if resp.clicked() {
+                            app.ui.panels.toolbar_double = !double;
+                        }
+                    });
+                    ui.add_space(4.0);
+                }
 
                 let layout = if double { egui::Layout::left_to_right(egui::Align::Min) } else { egui::Layout::top_down(egui::Align::Min) };
 
@@ -1169,7 +1206,8 @@ fn options_bar_height(pro: bool, narrow: bool) -> f32 {
     match (pro, narrow) {
         (true, false) => 36.0,
         (true, true) => 30.0,
-        (false, false) => 42.0,
+        // REV7: the mockup's h-11 island (44pt); the narrow fallback keeps its own height.
+        (false, false) => 44.0,
         (false, true) => 34.0,
     }
 }
@@ -6770,7 +6808,10 @@ mod toolbar_tests {
             crate::theme::ThemeKind::SolarizedDark,
             crate::theme::ThemeKind::BreezeDark,
         ] {
-            let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            // REV7: the default flipped to expanded (islands) — this test drives the toggle
+            // from a known state, so start single explicitly.
+            app.ui.panels.toolbar_double = false;
             let mut h = egui_kittest::Harness::builder().with_size(vec2(800.0, 1400.0)).with_step_dt(1.0 / 60.0).build_ui_state(
                 |ui, app: &mut PhotocraftApp| {
                     if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
@@ -6825,7 +6866,9 @@ mod toolbar_tests {
     #[test]
     fn quick_mask_and_screen_mode_follow_the_toolbar_columns() {
         for theme in [crate::theme::ThemeKind::Pro, crate::theme::ThemeKind::Studio, crate::theme::ThemeKind::Classic] {
-            let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            // REV7: default flipped to expanded — drive the toggle from single explicitly.
+            app.ui.panels.toolbar_double = false;
             let mut h = egui_kittest::Harness::builder().with_size(vec2(800.0, 1400.0)).build_ui_state(
                 |ui, app: &mut PhotocraftApp| {
                     if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {

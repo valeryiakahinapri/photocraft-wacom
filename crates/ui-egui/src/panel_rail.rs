@@ -224,10 +224,12 @@ pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let t = Tokens::get(ctx);
     let pro = t.pro;
     let width = if pro { 290.0 } else { 300.0 };
+    // REV7: the folded rail's flyout = the mockup's popover — radius 12, popover fill,
+    // hairline edge (bezel-free), the island shadow.
     let frame = egui::Frame::NONE
         .fill(if t.islands { t.popover } else { t.card })
-        .stroke(egui::Stroke::new(1.0, t.card_border))
-        .corner_radius(egui::CornerRadius::same(t.radius_lg as u8))
+        .stroke(if t.islands { egui::Stroke::new(1.0, t.hairline) } else { egui::Stroke::new(1.0, t.card_border) })
+        .corner_radius(if t.islands { egui::CornerRadius::same(t.radius_island as u8) } else { egui::CornerRadius::same(t.radius_lg as u8) })
         .shadow(egui::Shadow { offset: [0, 10], blur: 30, spread: 0, color: t.shadow })
         .inner_margin(egui::Margin::same(8));
     let mut window = egui::Window::new(tl!(g.label()).to_owned())

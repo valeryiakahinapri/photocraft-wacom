@@ -105,7 +105,7 @@ fn cpu_canvas_paints_its_image_on_physical_pixel_edges() {
         let view = app.ui.views[0].clone();
         let saved_center = view.center;
         let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900.0, 600.0))), ..Default::default() }, |ui| {
-            canvas_view(&mut app, ui, 0, xform(ppp, [523.0, 471.0]).rect, view.clone(), false);
+            canvas_view(&mut app, ui, 0, xform(ppp, [523.0, 471.0]).rect, view.clone(), false, false);
         });
         out.textures_delta.clear();
         let mesh = out

@@ -465,8 +465,9 @@ pub struct Panels {
     /// Window › Character / Paragraph: the Character | Paragraph dock group (#150).
     #[serde(default)]
     pub character: bool,
-    /// The toolbar's header chevron: two columns even when one fits (#1197).
-    #[serde(default)]
+    /// Two tool columns (the mockup's expanded 80pt toolbar). Defaults ON since REV7 — the
+    /// mockup boots expanded; a persisted pick always wins.
+    #[serde(default = "toolbar_double_default")]
     pub toolbar_double: bool,
     /// The right-hand panel dock. ⇧Tab hides and shows it, as in Photoshop (#1313).
     #[serde(default = "yes")]
@@ -495,6 +496,11 @@ pub struct Panels {
     pub gradient_editor: bool,
 }
 
+/// The persisted default for `toolbar_double` (REV7: expanded, matching the mockup).
+fn toolbar_double_default() -> bool {
+    true
+}
+
 impl Default for Panels {
     fn default() -> Self {
         Self {
@@ -509,7 +515,7 @@ impl Default for Panels {
             brush_settings: false,
             brushes: false,
             character: false,
-            toolbar_double: false,
+            toolbar_double: toolbar_double_default(),
             dock: true,
             dock_expanded: true,
             hidden_by_tab: None,

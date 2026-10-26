@@ -217,7 +217,9 @@ fn lenient_tab_order<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMap<
     Ok(out)
 }
 
-/// Gap between groups; it is also the splitter's grab area.
+/// Gap between groups; it is also the splitter's grab area. REV7: FLUSH cards under
+/// islands — the mockup's divide-y leaves no gap, so the island theme overrides the visual
+/// gap to 0 while the splitter keeps a 5pt invisible hit strip (see `layout`).
 pub const GAP: f32 = 6.0;
 /// Upper bound on a stored height (guards against absurd values from `ui.set`).
 const MAX_HEIGHT: f32 = 4000.0;
@@ -348,6 +350,12 @@ impl DockLayout {
     /// the filler gets its preferred height (Layers: ~10 rows, #147); when the column is still
     /// too short every group gives way down to its minimum height.
     pub fn heights_for(&self, shown: &[Group], avail: f32, strip: f32) -> Vec<(Group, f32)> {
+        self.heights_for_gap(shown, avail, strip, GAP)
+    }
+
+    /// [`heights_for`] with an explicit inter-group gap (REV7: islands lay cards flush,
+    /// gap 0 — the heights absorb the space the flat shells give to `GAP`).
+    pub fn heights_for_gap(&self, shown: &[Group], avail: f32, strip: f32, gap: f32) -> Vec<(Group, f32)> {
         let avail = if avail.is_finite() { avail.max(0.0) } else { 0.0 };
         let filler = shown.iter().rposition(|g| !self.is_collapsed(*g));
         let mut hs: Vec<f32> = shown
@@ -364,7 +372,7 @@ impl DockLayout {
             })
             .collect();
         if let Some(f) = filler {
-            let gaps = GAP * shown.len().saturating_sub(1) as f32;
+            let gaps = gap * shown.len().saturating_sub(1) as f32;
             let min_fill = shown.get(f).map_or(0.0, |g| g.min_height());
             let pref_fill = shown.get(f).map_or(0.0, |g| g.preferred_fill());
             let used: f32 = hs.iter().sum::<f32>() + gaps;
@@ -528,9 +536,11 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
     let strip = if t.pro { 28.0 } else { 40.0 };
     let order: Vec<Group> = app.ui.dock.order().into_iter().filter(|g| shown.contains(g)).collect();
     let area = ui.available_rect_before_wrap();
-    let heights = app.ui.dock.heights_for(&order, area.height(), strip);
+    // REV7: flush cards under islands — the mockup's divide-y leaves no gap between cards.
+    let gap = if t.islands { 0.0 } else { GAP };
+    let heights = app.ui.dock.heights_for_gap(&order, area.height(), strip, gap);
     let locked = app.session.prefs().workspace_locked;
-    let rects = rects_after_layout(&heights, area);
+    let rects = rects_after_layout(&heights, area, gap);
     let mut actions: Vec<Action> = Vec::new();
     let mut peek_after: Option<Group> = None;
     let mut tab_drops: Vec<(Group, usize, Pos2)> = Vec::new();
@@ -541,8 +551,10 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
         // The island shell (REV6): the column reads as one surface — the mockup's
         // `divide-y` — with a hairline in each gap instead of bordered cards.
         if t.islands && i > 0 {
-            let y = rect.top() - 3.0;
-            ui.painter().line_segment([pos2(rect.left(), y), pos2(rect.right(), y)], egui::Stroke::new(1.0, t.separator));
+            // REV7: flush divide-y — the hairline sits exactly at the junction (the cards
+            // touch; the mockup's divide-foreground/[0.04]).
+            let y = rect.top();
+            ui.painter().line_segment([pos2(rect.left(), y), pos2(rect.right(), y)], egui::Stroke::new(1.0, t.hairline));
         }
         let mut child = ui.new_child(egui::UiBuilder::new().id_salt(("dock-group", g.key())).max_rect(rect));
         child.set_clip_rect(rect.intersect(ui.clip_rect()));
@@ -696,7 +708,8 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
         });
         // Splitter in the gap below this group: resizes it, pushing the neighbouring groups.
         if i + 1 < rects.len() && !collapsed && rects.iter().skip(i + 1).any(|(n, _)| !app.ui.dock.is_collapsed(*n)) {
-            let gap = Rect::from_min_size(pos2(rect.left(), rect.bottom()), vec2(rect.width(), GAP)).expand2(vec2(0.0, 2.0));
+            // REV7: with flush cards the splitter is a 5pt INVISIBLE strip over the junction.
+            let gap = Rect::from_min_size(pos2(rect.left(), rect.bottom() - 2.5), vec2(rect.width(), 5.0));
             let sresp = ui.interact(gap, ui.scope_id().with(("dock-splitter", g.key())), Sense::drag());
             if sresp.hovered() || sresp.dragged() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
@@ -728,8 +741,8 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
     if let (Some(g), Some(p)) = (dragging, ui.ctx().pointer_interact_pos()) {
         let before = drop_before(&order, &rects, g, p.y);
         let line_y = match before.and_then(|b| rects.iter().find(|(x, _)| *x == b)) {
-            Some((_, r)) => r.top() - GAP / 2.0,
-            None => rects.last().map_or(area.top(), |(_, r)| r.bottom() + GAP / 2.0),
+            Some((_, r)) => r.top() - gap / 2.0,
+            None => rects.last().map_or(area.top(), |(_, r)| r.bottom() + gap / 2.0),
         };
         ui.painter().line_segment([pos2(area.left(), line_y), pos2(area.right(), line_y)], Stroke::new(3.0, t.accent));
     }
@@ -769,13 +782,13 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
     }
 }
 
-fn rects_after_layout(heights: &[(Group, f32)], area: Rect) -> Vec<(Group, Rect)> {
+fn rects_after_layout(heights: &[(Group, f32)], area: Rect, gap: f32) -> Vec<(Group, Rect)> {
     let mut y = area.top();
     heights
         .iter()
         .map(|(g, h)| {
             let r = Rect::from_min_size(pos2(area.left(), y), vec2(area.width(), h.max(0.0)));
-            y = r.bottom() + GAP;
+            y = r.bottom() + gap;
             (*g, r)
         })
         .collect()

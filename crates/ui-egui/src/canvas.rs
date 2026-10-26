@@ -7193,7 +7193,7 @@ mod tests {
         for rotation in [0.0f32, 30.0] {
             let view = View { zoom: 4.0, center: [32.0, 16.0], rotation, ..app.ui.views[0].clone() };
             let mut output = ctx.run_ui(Default::default(), |ui| {
-                canvas_view(&mut app, ui, 0, Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0)), view.clone(), true);
+                canvas_view(&mut app, ui, 0, Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0)), view.clone(), true, false);
             });
             output.textures_delta.clear();
             let overlay = crate::channel_view::ensure(&mut app, &ctx, 0).expect("the channel overlay");
