@@ -130,12 +130,23 @@ def rgb(img: Image.Image) -> np.ndarray:
 
 
 def l1_probes(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
+    """Edge-band probes: content lives 8pt inside every island, so the 5pt edge band is
+    guaranteed fill. The workspace probes sit 10pt inside its left edge (clear of the
+    centred document image); the title bar probes at 35% width (clear of menus, search,
+    doc name)."""
     findings = []
     for name, (x, y, w, h) in regions.items():
         token = REGION_FILL.get(name)
-        if not token or w < 16 or h < 16:
+        if not token or w < 24 or h < 24:
             continue
-        cx, cy = x + w // 2, y + h // 2
+        if name == "workspace":
+            cx, cy = x + 10, y + h // 2
+        elif name == "title-bar":
+            cx, cy = x + int(w * 0.35), y + h // 2
+        elif name in ("document", "tab-strip"):
+            continue  # covered by workspace + L2/L4
+        else:
+            cx, cy = x + w - 5, y + h // 2
         for side, arr in (("app", app), ("mck", mck)):
             patch = arr[cy - 2 : cy + 3, cx - 2 : cx + 3].reshape(-1, 3)
             med = [int(v) for v in np.median(patch, axis=0)]
@@ -148,15 +159,26 @@ def l1_probes(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
 def l2_scanlines(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
     findings = []
 
+    tokarr = np.array(list(TOKENS.values()), dtype=np.int16)
+
+    def quant(px: np.ndarray) -> np.ndarray:
+        # nearest token within 8/channel; else -1 (content)
+        d = np.abs(px[:, None, :] - tokarr[None, :, :]).max(axis=2)
+        best = d.argmin(axis=1)
+        near = d[np.arange(len(px)), best] <= 8
+        out = np.where(near[:, None], tokarr[best], -1)
+        return out
+
     def runs(arr: np.ndarray, y: int) -> list[tuple[int, int, tuple]]:
-        row = arr[y]
+        q = quant(arr[y].astype(np.int16))
         out, start = [], 0
-        for x in range(1, len(row)):
-            if not np.array_equal(row[x], row[start]):
-                out.append((start, x, tuple(int(v) for v in row[start])))
+        for x in range(1, len(q)):
+            if not np.array_equal(q[x], q[start]):
+                out.append((start, x, tuple(int(v) for v in q[start])))
                 start = x
-        out.append((start, len(row), tuple(int(v) for v in row[start])))
-        return [r for r in out if r[1] - r[0] >= 4]
+        out.append((start, len(q), tuple(int(v) for v in q[start])))
+        # structural runs only: >=16px wide AND a real token (not content)
+        return [r for r in out if r[1] - r[0] >= 16 and r[2][0] >= 0]
 
     ys = {
         "title-mid": regions["title-bar"][1] + 20,
@@ -180,10 +202,19 @@ def l2_scanlines(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
     return findings
 
 
+# What each region's corners cut INTO (the surrounding fill).
+PARENT_FILL = {
+    "toolbar": "background", "options-bar": "background", "document": "background",
+    "right-island": "background", "status-pill": "workspace",
+}
+
 def l3_corners(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
+    """Corner-cut area: pixels matching the PARENT fill inside the corner box = the true
+    rounded-away region (AA edges and shadows differ from the parent by more than 3, so
+    they are excluded — the mockup's layered shadow no longer reads as a bigger radius)."""
     findings = []
     corners = []
-    for name in ("toolbar", "options-bar", "document", "right-island", "status-pill"):
+    for name, parent in PARENT_FILL.items():
         if name not in regions:
             continue
         x, y, w, h = regions[name]
@@ -192,17 +223,14 @@ def l3_corners(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
             (f"{name}-bl", x, y + h - 13), (f"{name}-br", x + w - 13, y + h - 13),
         ]
     for label, cx, cy in corners:
-        aa = app[cy : cy + 13, cx : cx + 13].reshape(-1, 3)
-        am = mck[cy : cy + 13, cx : cx + 13].reshape(-1, 3)
-        fill = TOKENS[REGION_FILL.get(label.rsplit("-", 1)[0], "surface")]
-
-        def area(px):
-            return int(sum(1 for p in px if any(abs(int(p[i]) - fill[i]) > 6 for i in range(3))))
-
-        a, m = area(aa), area(am)
+        parent = TOKENS[PARENT_FILL[label.rsplit("-", 1)[0]]]
+        def cut(px):
+            return int(sum(1 for p in px if all(abs(int(p[i]) - parent[i]) <= 3 for i in range(3))))
+        a = cut(app[cy : cy + 13, cx : cx + 13].reshape(-1, 3))
+        m = cut(mck[cy : cy + 13, cx : cx + 13].reshape(-1, 3))
         r = max(2.0, ((a + m) / 2 / (1 - np.pi / 4)) ** 0.5)
         dr = abs(a - m) / (2 * r * (1 - np.pi / 4)) if r > 0 else 99
-        findings.append({"layer": "L3", "corner": label, "area_app": a, "area_mck": m,
+        findings.append({"layer": "L3", "corner": label, "cut_app": a, "cut_mck": m,
                          "equiv_radius": round(float(r), 1), "dr": round(float(dr), 2), "ok": bool(dr <= 1.5)})
     return findings
 

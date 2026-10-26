@@ -2610,7 +2610,8 @@ pub fn document_area(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 /// canvas (the tab-close-X precedent).
 fn paint_status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui, island: Rect) {
     let t = crate::theme::Tokens::get(ui.ctx());
-    let h = crate::panels::status_bar_heights(&t).0 + 8.0;
+    // The mockup's pill is 32pt tall (measured: inset-x-2 bottom-2, py-1, 11px text).
+    let h = 32.0;
     let pill = Rect::from_min_max(
         egui::pos2(island.left() + 8.0, island.bottom() - 8.0 - h),
         egui::pos2(island.right() - 8.0, island.bottom() - 8.0),
