@@ -60,6 +60,8 @@ pub fn start() {
         };
         let q = query();
         let force_cpu = q.contains("cpu");
+        // The A/B oracle boot: deterministic chrome + a seeded 1920×1080 document (REV7).
+        let oracle = q.contains("oracle=1");
         let mut options = eframe::WebOptions::default();
         photocraft_ui_egui::gpu_canvas::use_adapter_limits(&mut options.wgpu_options.wgpu_setup);
         if q.contains("webgl")
@@ -98,6 +100,9 @@ pub fn start() {
                     let mut app = PhotocraftApp::new(session, services(inbox.clone(), place_inbox.clone(), drag_pos_service(pen_target.clone(), drag)));
                     if !preset_warnings.is_empty() {
                         photocraft_ui_egui::notices::post(&mut app, i18n::t("Some brush presets could not be loaded"), preset_warnings, true, None);
+                    }
+                    if oracle {
+                        app.oracle_seed();
                     }
                     listen_pen(&pen_target, app.stylus.feed.clone());
                     // No forced theme: setup_context already applied ModernCanvas (the
