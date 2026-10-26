@@ -66,9 +66,9 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
         // the column's (one island, nothing between them); the animated `edge` margin keeps
         // revealing the rounded screen-edge corners as the column folds away.
         if rtl {
-            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 8, right: edge, top: 4, bottom: 4 })
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 8, right: edge, top: 4, bottom: 8 })
         } else {
-            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 0, right: edge, top: 4, bottom: 4 })
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 0, right: edge, top: 4, bottom: 8 })
         }
     } else {
         egui::Frame::NONE

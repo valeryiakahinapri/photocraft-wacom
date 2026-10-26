@@ -2551,7 +2551,10 @@ impl PhotocraftApp {
         if (chrome && self.ui.panels.options_bar) || tabbed_in {
             panels::options_bar(self, ui);
         }
-        if chrome && self.ui.panels.status_bar {
+        // REV7: under islands the status row floats inside the document workspace
+        // (canvas::paint_status_pill) — the bottom panel exists only for the flat shells.
+        let t_early = theme::Tokens::get(&ctx);
+        if chrome && self.ui.panels.status_bar && !t_early.islands {
             panels::status_bar(self, ui);
         }
         if (chrome && self.ui.panels.toolbar) || tabbed_in {
@@ -2560,13 +2563,13 @@ impl PhotocraftApp {
         if (chrome && (self.ui.panels.dock || self.ui.panels.rail)) || tabbed_in {
             panels::right_dock(self, ui);
         }
-        let t = theme::Tokens::get(&ctx);
+        let t = t_early;
         let backdrop = if chrome { prefs_ui::pasteboard_color(self).unwrap_or(t.canvas) } else { egui::Color32::BLACK };
-        // The island shell (REV6): the central strip paints the page and insets the document
-        // island by the 4pt halves of its gaps to the toolbar, dock and bars; the workspace
-        // inside the island keeps the pasteboard/canvas shade (canvas::documents).
+        // The island shell (REV7): the central strip paints the page and insets the document
+        // island by the gap halves to the toolbar and dock; the bottom gap is the full 8pt
+        // (the status island retired into the workspace's floating pill).
         let central = if t.islands && chrome {
-            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 4, right: 4, top: 4, bottom: 4 })
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 4, right: 4, top: 4, bottom: 8 })
         } else {
             egui::Frame::NONE.fill(backdrop)
         };

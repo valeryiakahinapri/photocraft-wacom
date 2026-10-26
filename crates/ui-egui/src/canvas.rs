@@ -2588,10 +2588,37 @@ pub(crate) fn retain_gpu_documents(app: &mut PhotocraftApp) {
 /// another document (`layer_transfer`).
 pub fn document_area(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     crate::distort_ui::drop_foreign(app);
+    // REV7: the floating status pill paints inside the document island after every branch of
+    // `documents` (home screen, empty workspace, open card, documents) — the row re-homed
+    // from the retired bottom panel, so jobs and status text keep their only surface.
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let island = ui.max_rect();
     documents(app, ui);
+    if t.islands && app.ui.panels.status_bar {
+        paint_status_pill(app, ui, island);
+    }
     crate::layer_transfer::finish(app, ui.ctx());
     // Once a frame, not per document view: the right-click or options-bar Brush Preset picker.
     crate::paint_mouse::show_picker(app, ui.ctx());
+}
+
+/// The mockup's floating status bar (REV7): a rounded pill inset 8pt from the document
+/// island's sides and bottom (`inset-x-2 bottom-2`, radius 9, `surface/70` solid), carrying
+/// the same row the old bottom strip did. Painted last so it wins hit-testing over the
+/// canvas (the tab-close-X precedent), and skip while a modal owns the screen.
+fn paint_status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui, island: Rect) {
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let h = crate::panels::status_bar_heights(&t).0 + 8.0;
+    let pill = Rect::from_min_max(
+        egui::pos2(island.left() + 8.0, island.bottom() - 8.0 - h),
+        egui::pos2(island.right() - 8.0, island.bottom() - 8.0),
+    );
+    ui.painter().rect_filled(pill, egui::CornerRadius::same(9), t.pill_fill);
+    ui.scope_builder(egui::UiBuilder::new().max_rect(pill).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
+        let control_h = crate::panels::status_bar_heights(&t).1;
+        ui.add_space(8.0);
+        crate::panels::status_row(app, ui, &t, control_h);
+    });
 }
 
 /// Window › Arrange tiles: each document shown with its tile in `rect`, or `None` when the
@@ -2619,11 +2646,18 @@ fn documents(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // Files opening in the background (#210) have tabs before they have documents.
     let opening = !app.jobs.opens.is_empty();
     let t = crate::theme::Tokens::get(ui.ctx());
-    // The island shell (REV6): the document area is the last island — the tab row sits on its
-    // surface, the workspace (the pasteboard/dot region) insets 6pt with its own radius, like
-    // the mockup's `workspace-bg` inside the document island. Non-island themes are unchanged.
+    // The island shell (REV7): the document area is the darkest island — it fills with the
+    // workspace shade (close-to-black), the tab strip and dots sit directly on it, and the
+    // shade difference against the grey panels IS the boundary (bezel-free law).
     if t.islands {
-        crate::panels::paint_island(ui, &t);
+        crate::panels::paint_island_rect(
+            ui.painter(),
+            &t,
+            ui.max_rect(),
+            egui::CornerRadius::same(t.radius_island.round() as u8),
+            t.workspace,
+            None,
+        );
     }
     if !opening && app.ui.chrome.shows_home(n, app.session.prefs().general.auto_show_home_screen) {
         if t.islands {
@@ -2703,21 +2737,24 @@ fn documents(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 }
 
-/// Run `f` over the document workspace (REV6): under islands, the 6pt-inset rounded
-/// pasteboard region inside the document island (`below_tabs`: no top inset, the tab row
-/// sits directly above); otherwise the raw available area, unchanged. `f` receives the
-/// workspace rect — the canvas's own rect, drop targets and tiling cells base on it.
+/// Run `f` over the document workspace (REV7): under islands the workspace IS the document
+/// island's interior — no inset, no fill of its own (the island already painted the
+/// workspace shade; only an explicit pasteboard-color preference paints over it, rounded at
+/// the island's bottom corners); otherwise the raw available area, unchanged. `f` receives
+/// the workspace rect — the canvas's own rect, drop targets and tiling cells base on it.
 fn workspace_area(app: &mut PhotocraftApp, ui: &mut egui::Ui, below_tabs: bool, f: impl FnOnce(&mut PhotocraftApp, &mut egui::Ui, Rect)) {
+    let _ = below_tabs;
     let t = crate::theme::Tokens::get(ui.ctx());
-    let mut ws = ui.available_rect_before_wrap();
-    ws.min.x += 6.0;
-    ws.max.x -= 6.0;
-    ws.max.y -= 6.0;
-    if !below_tabs {
-        ws.min.y += 6.0;
+    let ws = ui.available_rect_before_wrap();
+    if t.islands {
+        if let Some(color) = crate::prefs_ui::pasteboard_color(app) {
+            let r = egui::CornerRadius { nw: 0, ne: 0, sw: t.radius_island.round() as u8, se: t.radius_island.round() as u8 };
+            ui.painter().rect_filled(ws, r, color);
+        }
+    } else {
+        let fill = crate::prefs_ui::pasteboard_color(app).unwrap_or(t.canvas);
+        ui.painter().rect_filled(ws, egui::CornerRadius::same(t.radius as u8), fill);
     }
-    let fill = crate::prefs_ui::pasteboard_color(app).unwrap_or(t.canvas);
-    ui.painter().rect_filled(ws, egui::CornerRadius::same(t.radius as u8), fill);
     ui.scope_builder(egui::UiBuilder::new().max_rect(ws), |ui| {
         f(app, ui, ui.available_rect_before_wrap());
     });
@@ -2743,7 +2780,7 @@ fn tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
     let dragging = crate::layer_transfer::pointer_if_armed(app, ui.ctx());
     let mut drag_over = None;
     let large_tabs = app.session.prefs().workspace.large_tabs;
-    let tab_h = if large_tabs { 34.0 } else { 26.0 };
+    let tab_h = if t.islands { 36.0 } else if large_tabs { 34.0 } else { 26.0 };
     let font = crate::theme::medium(if large_tabs { 14.0 } else { 12.5 });
     let meta_font = egui::FontId::proportional(if large_tabs { 12.0 } else { 10.5 });
     // Files opening in the background (#210) are tabs too; they share the fit's index space,
@@ -2771,7 +2808,16 @@ fn tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
         .focus
         .and_then(|job| opening.iter().position(|(open, _, _)| *open == job))
         .map_or_else(|| app.session.active_index().unwrap_or(0), |p| tab_count + p);
-    let frame = egui::Frame::NONE.fill(t.card).inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 4 }).show(ui, |ui| {
+    // REV7: the strip is transparent on the workspace under islands (the mockup's tab row
+    // sits directly on the dark canvas area); pills carry the fill. Height 36 (h-9) in a 44px
+    // strip with 4pt padding, matching Shell.tsx's geometry.
+    let (strip_fill, strip_margin, strip_h) = if t.islands {
+        (egui::Color32::TRANSPARENT, egui::Margin { left: 8, right: 8, top: 4, bottom: 4 }, 36.0)
+    } else {
+        (t.card, egui::Margin { left: 8, right: 8, top: 6, bottom: 4 }, if large_tabs { 34.0 } else { 26.0 })
+    };
+    let _ = strip_h;
+    let frame = egui::Frame::NONE.fill(strip_fill).inner_margin(strip_margin).show(ui, |ui| {
         let (row, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), tab_h), Sense::hover());
         let f = fit_doc_tabs(&natural, selected, row.width());
         let mut x = row.left();
@@ -2802,12 +2848,16 @@ fn tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
             doc_tabs.push((i, r));
             // The island shell's document tabs carry the mockup's 5pt radius; other themes keep
             // the small radius.
-            let tab_r = if t.islands { t.radius } else { t.radius_sm };
+            let tab_r = if t.islands { 8.0 } else { t.radius_sm };
             if sel {
-                ui.painter().rect_filled(r, tab_r, t.canvas);
-                ui.painter().rect_stroke(r, tab_r, Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
+                // REV7: the active tab is the surface/70-over-workspace solid pill — lighter
+                // than the workspace, no stroke (bezel-free).
+                ui.painter().rect_filled(r, tab_r, if t.islands { t.pill_fill } else { t.canvas });
+                if !t.islands {
+                    ui.painter().rect_stroke(r, tab_r, Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
+                }
             } else if resp.hovered() {
-                ui.painter().rect_filled(r, tab_r, t.hover.gamma_multiply(0.5));
+                ui.painter().rect_filled(r, tab_r, if t.islands { t.hover } else { t.hover.gamma_multiply(0.5) });
             }
             if dragging.is_some_and(|p| r.contains(p)) {
                 drag_over = Some(i);
@@ -2851,12 +2901,14 @@ fn tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
             let meta_g = ui.painter().layout_no_wrap(format!("{:.0}%", frac * 100.0), meta_font.clone(), t.text_faint);
             let name_g = crate::tab_strip::elided(ui, name, font.clone(), t.text, (r.width() - STUDIO_TAB_PAD + STUDIO_TAB_GAP - meta_g.size().x).max(1.0));
             let resp = ui.interact(r, ui.scope_id().with(("dtabjob", job.0)), Sense::click());
-            let tab_r = if t.islands { t.radius } else { t.radius_sm };
+            let tab_r = if t.islands { 8.0 } else { t.radius_sm };
             if sel {
-                ui.painter().rect_filled(r, tab_r, t.canvas);
-                ui.painter().rect_stroke(r, tab_r, Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
+                ui.painter().rect_filled(r, tab_r, if t.islands { t.pill_fill } else { t.canvas });
+                if !t.islands {
+                    ui.painter().rect_stroke(r, tab_r, Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
+                }
             } else if resp.hovered() {
-                ui.painter().rect_filled(r, tab_r, t.hover.gamma_multiply(0.5));
+                ui.painter().rect_filled(r, tab_r, if t.islands { t.hover } else { t.hover.gamma_multiply(0.5) });
             }
             let ny = r.center().y - name_g.size().y / 2.0;
             ui.painter().galley_with_override_text_color(egui::pos2(r.left() + 10.0, ny), name_g.clone(), if sel { t.text } else { t.text_dim });
@@ -3330,7 +3382,8 @@ fn paint_dots(ui: &egui::Ui, rect: Rect, enabled: bool) {
         if t.islands {
             // The island shell's workspace rounds the dot grid with it — a brush-shaped rect
             // carries the rounded clip the plain image paint can't.
-            let mut shape = egui::epaint::RectShape::filled(rect, egui::CornerRadius::same(t.radius as u8), Color32::WHITE);
+            let rr = t.radius_island.round() as u8;
+            let mut shape = egui::epaint::RectShape::filled(rect, egui::CornerRadius { nw: 0, ne: 0, sw: rr, se: rr }, Color32::WHITE);
             shape.brush = Some(std::sync::Arc::new(egui::epaint::Brush { fill_texture_id: id, uv }));
             ui.painter_at(rect).add(shape);
         } else {
@@ -3677,11 +3730,12 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let stroke_dismissal = primary && crate::shape_stroke_ui::dismiss_from_canvas(app, &response);
     let painter = ui.painter_at(rect);
 
-    // The island shell (REV6): the main workspace's pasteboard rounds with the workspace
-    // (the 6pt-inset region inside the document island); tiles and floating windows keep
-    // square fills inside it.
+    // The island shell (REV7): the workspace IS the document island's interior, so the
+    // backdrop (pasteboard) rounds with the island's bottom corners when the preference
+    // paints it; tiles and floating windows keep square fills inside it.
     let backdrop_radius = if workspace && crate::theme::Tokens::get(ui.ctx()).islands {
-        egui::CornerRadius::same(crate::theme::Tokens::get(ui.ctx()).radius as u8)
+        let rr = crate::theme::Tokens::get(ui.ctx()).radius_island.round() as u8;
+        egui::CornerRadius { nw: 0, ne: 0, sw: rr, se: rr }
     } else {
         egui::CornerRadius::ZERO
     };

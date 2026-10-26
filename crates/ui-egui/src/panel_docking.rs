@@ -504,7 +504,7 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
                 // The island shell's customized column: same page gaps and column segment as
                 // the legacy dock (panels::dock_panels) — flush at the seam (left 0) so both
                 // paths draw ONE island with the rail.
-                egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 0, right: 8, top: 4, bottom: 4 })
+                egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 0, right: 8, top: 4, bottom: 8 })
             } else {
                 egui::Frame::NONE.fill(t.canvas).corner_radius(crate::panels::chrome_panel_radius(&t)).inner_margin(egui::Margin::same(4))
             });

@@ -252,7 +252,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         .show_separator_line(!t.islands)
         .exact_size(w + 8.0 + if t.islands { 12.0 } else { 0.0 })
         .frame(if t.islands {
-            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: ml, right: mr, top: 4, bottom: 4 })
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: ml, right: mr, top: 4, bottom: 8 })
         } else {
             egui::Frame::NONE.fill(t.canvas).corner_radius(chrome_panel_radius(&t)).inner_margin(egui::Margin::symmetric(m, 8))
         })
@@ -1898,24 +1898,9 @@ pub fn status_bar_heights(t: &Tokens) -> (f32, f32) {
     if t.pro { (24.0, 18.0) } else { (30.0, 22.0) }
 }
 
-pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    let t = Tokens::get(ui.ctx());
-    egui::Panel::bottom("status_bar")
-        .exact_size(status_bar_heights(&t).0 + if t.islands { 12.0 } else { 0.0 })
-        .show_separator_line(!t.islands)
-        .frame(if t.islands {
-            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 8 })
-        } else {
-            egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(10, 0))
-        })
-        .show(ui, |ui| {
-            if t.islands {
-                paint_island(ui, &t);
-            }
-            let pad = if t.islands { egui::Margin::symmetric(10, 0) } else { egui::Margin::same(0) };
-            egui::Frame::NONE.inner_margin(pad).show(ui, |ui| {
-                let control_h = status_bar_heights(&t).1;
-                // Read from the right in a right-to-left UI, with the trailing group at the left.
+/// The status row both shells share: the bottom panel's body (non-island themes) and the
+/// floating pill inside the document workspace (REV7 islands — `canvas::paint_status_pill`).
+pub(crate) fn status_row(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens, control_h: f32) {
                 crate::direction::horizontal_centered(ui, |ui| {
                     if t.pro {
                         crate::chrome_ui::status_bar_pro(app, ui);
@@ -1970,6 +1955,26 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         crate::chrome_ui::gpu_memory_status(app, ui);
                     });
                 });
+}
+
+pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let t = Tokens::get(ui.ctx());
+    egui::Panel::bottom("status_bar")
+        .exact_size(status_bar_heights(&t).0 + if t.islands { 12.0 } else { 0.0 })
+        .show_separator_line(!t.islands)
+        .frame(if t.islands {
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 8 })
+        } else {
+            egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(10, 0))
+        })
+        .show(ui, |ui| {
+            if t.islands {
+                paint_island(ui, &t);
+            }
+            let pad = if t.islands { egui::Margin::symmetric(10, 0) } else { egui::Margin::same(0) };
+            egui::Frame::NONE.inner_margin(pad).show(ui, |ui| {
+                let control_h = status_bar_heights(&t).1;
+                status_row(app, ui, &t, control_h);
             });
         });
 }
@@ -2088,7 +2093,7 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, expanded: &mut bool, 
     let rtl = crate::direction::is_rtl();
     // REV7 one-surface: the column's seam-side margin is 0 so its segment abuts the rail's
     // flush (no page gap between them — the mockup's right side is ONE island).
-    let gaps = if rtl { egui::Margin { left: 8, right: 0, top: 4, bottom: 4 } } else { egui::Margin { left: 0, right: 8, top: 4, bottom: 4 } };
+    let gaps = if rtl { egui::Margin { left: 8, right: 0, top: 4, bottom: 8 } } else { egui::Margin { left: 0, right: 8, top: 4, bottom: 8 } };
     let segment_radius = if t.islands {
         let r = t.radius_island.round() as u8;
         if rtl { egui::CornerRadius { nw: r, ne: 0, sw: r, se: 0 } } else { egui::CornerRadius { nw: 0, ne: r, sw: 0, se: r } }
