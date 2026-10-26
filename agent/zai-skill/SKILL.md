@@ -166,3 +166,39 @@ Z.ai sandbox (control plane)                GH Codespace (build plane)
 - **Warm-cache restores may mass-rebuild a ~140-crate subset** (registry mtime drift
   between the toolchain and tree tars). Don't debug it — let one convergence build run
   (2-3 min), then the lane is warm again. True noop after that ≈ seconds.
+
+## Session 7 additions (2026-10-26 — REV7 + the A/B oracle)
+
+- **MEASURE, never compute color tokens**: matrix-based OKLCH→sRGB converters drift
+  on chromatic colors even when they pass red/white/black anchors (ours said
+  #5EB9FE; Chrome rasterizes oklch(0.68 0.16 250) as #3B9CF6). The browser's canvas
+  is the ground truth: `agent-browser eval` + a 2d-canvas fillRect probe gives exact
+  sRGB, and alpha composites (surface/70 over X) probe by filling base then top.
+  script: the R1-0 law in agent/design/2026-10-26-rev7-bezel-free-and-oracle.md.
+- **Multi-step python edits to source files MUST verify**: a heredoc script that
+  asserts mid-way and never writes leaves NO changes — but a LATER script in the
+  same session looked like it had landed them (the P0 of round 3: the ModernCanvas
+  retune silently never landed; the rewritten test was the canary). Always re-grep
+  the destination after each scripted edit batch.
+- **egui panel layout order**: the FIRST end-panel shown claims the screen edge;
+  later end panels stack inward ([central | rail | column | edge] for our dock).
+  Mental-model errors here invert shadow-clip half-planes and misplace margins —
+  verify with a pixel scan at two heights before trusting orientation logic.
+- **The oracle harness pattern** (tools/oracle/run.py): mockup carries an /oracle
+  route mirroring the app's real chrome grammar (app tab sets, one Untitled tab,
+  pinned solids instead of backdrop-blur, app-less elements hidden); the app boots
+  ?oracle=1 (deterministic seed: expanded toolbar, closed floaters, centered doc at
+  zoom-with-slack so no canvas scrollbars); compare L1 token probes (5×5 medians in
+  edge bands, content never reaches there) / L2 structural boundaries (expected from
+  the DOM region map; SOLID fills in page gaps fail, shadow falloff doesn't) / L3
+  corner-cut area vs the PARENT fill (shadow-immune; ±2px for tessellation) / L4
+  masked per-region ΔE (mask = region interiors beyond 8pt edge bands + the doc
+  image ring). One command, exit code for CI.
+- **egui 0.37 notes**: Id::new→Id::unique (deterministic rename), Ui::id→scope_id,
+  WidgetType→Role, panels remember sizes under parent-scoped ids (PANEL_STATE_KEYS
+  migration in panels.rs), Panel defaults show_separator_line(true) — chrome panels
+  must opt out per theme.
+- **Trunk bundle quirks**: dist/web includes snippets/ (eframe inline0.js) — the
+  bake MUST copy it or boot stalls forever with no console error. And the daemonized
+  trunk-bundle.py can die before writing its log while having WRITTEN dist — verify
+  by the dist file's mtime/hash, not the status file.
