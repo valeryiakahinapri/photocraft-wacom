@@ -1073,6 +1073,7 @@ impl PhotocraftApp {
         // inside the workspace with margins on every side.
         if let Some(i) = self.session.active_index() {
             self.ui.views[i].zoom = 0.45;
+            self.ui.views[i].center = [960.0, 540.0];
             self.ui.views[i].doc_size = [1920, 1080];
             self.ui.views[i].zoom_animating = false;
             self.ui.views[i].zoom_anchor = None;

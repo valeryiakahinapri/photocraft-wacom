@@ -162,8 +162,12 @@ pub fn show(ui: &Ui, rect: Rect, view: &mut View, flip: bool, aspect: f32, overs
     let hx = |c: f32| if flip { w as f32 - c } else { c };
     let with_extent = |s: Span| (s, s.extent(overscroll));
     let aspect = if aspect.is_finite() && aspect > 0.0 { aspect } else { 1.0 };
-    let ex = Span::of(w as f32, hx(view.center[0]), rect.width() / aspect, zoom).map(with_extent);
-    let ey = Span::of(h as f32, view.center[1], rect.height(), zoom).map(with_extent);
+    // REV7 (mockup): a bar appears only when its axis actually scrolls — the doc wider/taller
+    // than the view. The old always-on tracks (Span::of is Some whenever the doc has size)
+    // read as permanent grey rails on a fitting document, which the mockup never shows.
+    let scrollable = |s: &Span| s.v1 - s.v0 < s.len;
+    let ex = Span::of(w as f32, hx(view.center[0]), rect.width() / aspect, zoom).filter(scrollable).map(with_extent);
+    let ey = Span::of(h as f32, view.center[1], rect.height(), zoom).filter(scrollable).map(with_extent);
     if ex.is_none() && ey.is_none() {
         return false;
     }

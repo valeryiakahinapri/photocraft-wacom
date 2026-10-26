@@ -199,13 +199,14 @@ def l2_scanlines(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
     # The page-gap bands at this y (boundaries there = something painted in a gap — the
     # exact "arbitrary fill" bug class the oracle exists to catch).
     def gap_bands(y: int) -> list[tuple[int, int]]:
+        # every region at this y is covered territory; the gaps between them are the page
         covered = sorted((x, x + w) for name, (x, ry, w, h) in regions.items()
-                         if ry <= y < ry + h and name not in ("page", "workspace", "document", "tab-strip", "status-pill"))
+                         if ry <= y < ry + h and name != "page")
         bands, prev = [], 0
         for x0, x1 in covered:
             if x0 - prev >= 4:
                 bands.append((prev, x0))
-            prev = x1
+            prev = max(prev, x1)
         if regions["page"][2] - prev >= 4:
             bands.append((prev, regions["page"][2]))
         return bands

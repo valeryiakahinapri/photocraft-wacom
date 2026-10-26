@@ -2617,11 +2617,11 @@ fn paint_status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui, island: Rect) {
         egui::pos2(island.right() - 8.0, island.bottom() - 8.0),
     );
     ui.painter().rect_filled(pill, egui::CornerRadius::same(9), t.pill_fill);
-    ui.scope_builder(egui::UiBuilder::new().max_rect(pill).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
+    // The row lives 8pt inside the pill so no widget ever covers a rounded corner.
+    let inner = egui::Rect::from_min_max(pill.left_top() + egui::vec2(8.0, 0.0), pill.right_bottom() - egui::vec2(8.0, 0.0));
+    ui.scope_builder(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
         let control_h = crate::panels::status_bar_heights(&t).1;
-        ui.add_space(8.0);
         crate::panels::status_row(app, ui, &t, control_h);
-        ui.add_space(8.0);
     });
 }
 
