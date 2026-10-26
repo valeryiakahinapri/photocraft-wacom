@@ -2594,7 +2594,9 @@ pub fn document_area(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = crate::theme::Tokens::get(ui.ctx());
     let island = ui.max_rect();
     documents(app, ui);
-    if t.islands && app.ui.panels.status_bar {
+    // The pill replaces the bottom strip, so it inherits the strip's visibility law: chrome
+    // on, not hidden by Full Screen Mode (the retired panel gated identically in lib.rs).
+    if t.islands && app.ui.panels.status_bar && !app.ui.view.hides_chrome() {
         paint_status_pill(app, ui, island);
     }
     crate::layer_transfer::finish(app, ui.ctx());
@@ -2605,7 +2607,7 @@ pub fn document_area(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 /// The mockup's floating status bar (REV7): a rounded pill inset 8pt from the document
 /// island's sides and bottom (`inset-x-2 bottom-2`, radius 9, `surface/70` solid), carrying
 /// the same row the old bottom strip did. Painted last so it wins hit-testing over the
-/// canvas (the tab-close-X precedent), and skip while a modal owns the screen.
+/// canvas (the tab-close-X precedent).
 fn paint_status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui, island: Rect) {
     let t = crate::theme::Tokens::get(ui.ctx());
     let h = crate::panels::status_bar_heights(&t).0 + 8.0;
@@ -2618,6 +2620,7 @@ fn paint_status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui, island: Rect) {
         let control_h = crate::panels::status_bar_heights(&t).1;
         ui.add_space(8.0);
         crate::panels::status_row(app, ui, &t, control_h);
+        ui.add_space(8.0);
     });
 }
 

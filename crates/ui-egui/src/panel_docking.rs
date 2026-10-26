@@ -421,10 +421,12 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
         if t.islands {
             let r = ui.max_rect();
             let rr = t.radius_island.round() as u8;
+            // LTR layout [central | rail | column | edge]: the column's LEFT edge is the
+            // seam — keep the shadow at x >= r.left() (the rail owns the west half).
             let clip = if crate::direction::is_rtl() {
-                egui::Rect::from_min_max(pos2(r.left(), r.top() - 100.0), pos2(r.right() + 100.0, r.bottom() + 100.0))
-            } else {
                 egui::Rect::from_min_max(pos2(r.left() - 100.0, r.top() - 100.0), pos2(r.right(), r.bottom() + 100.0))
+            } else {
+                egui::Rect::from_min_max(pos2(r.left(), r.top() - 100.0), pos2(r.right() + 100.0, r.bottom() + 100.0))
             };
             crate::panels::paint_island_rect(ui.painter(), &t, r, egui::CornerRadius { nw: 0, ne: rr, sw: 0, se: rr }, t.card, Some(clip));
         }

@@ -62,13 +62,13 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
     };
     let frame = if t.islands {
         let edge = edge as i8;
-        // REV7 one-surface: the seam-side margin is 0 — the rail's segment sits flush against
-        // the column's (one island, nothing between them); the animated `edge` margin keeps
-        // revealing the rounded screen-edge corners as the column folds away.
+        // REV7 one-surface: the rail's seam side (right in LTR) is the animated `edge`
+        // margin — flush with the column while it claims its half, opening to the screen-
+        // edge gap as it folds. The canvas side (left in LTR) keeps the 4pt half-gap.
         if rtl {
-            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 8, right: edge, top: 4, bottom: 8 })
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: edge, right: 4, top: 4, bottom: 8 })
         } else {
-            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 0, right: edge, top: 4, bottom: 8 })
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 4, right: edge, top: 4, bottom: 8 })
         }
     } else {
         egui::Frame::NONE
@@ -77,7 +77,7 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
             .outer_margin(egui::Margin::same(4))
             .inner_margin(egui::Margin::symmetric(4, 8))
     };
-    let resp = crate::direction::end_panel("rail").resizable(false).show_separator_line(!t.islands).exact_size(if t.islands { rw + edge } else { rw }).frame(frame).show(ui, |ui| {
+    let resp = crate::direction::end_panel("rail").resizable(false).show_separator_line(!t.islands).exact_size(if t.islands { rw + 4.0 + edge } else { rw }).frame(frame).show(ui, |ui| {
         if t.islands {
             // The rail segment of the right-side island: rounded toward the screen edge,
             // square at the seam while the column claims, all four corners once folded
@@ -93,13 +93,14 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
             // REV7: nothing separates the rail from the column — no seam hairline, and the
             // shadow clips to the rail's half while the column claims its own (folded away,
             // the rail is the whole island and paints the full shadow).
-            // LTR: the rail sits at the far right; its seam is the LEFT edge — keep the
-            // shadow at x >= r.left(). RTL mirrors (seam = right edge).
+            // LTR layout is [central | rail | column | screen edge]: the rail's RIGHT edge
+            // is the seam — keep the shadow at x <= r.right() (the column owns the east
+            // half). RTL mirrors (seam = left edge). No clip once the column folds away.
             let shadow_clip = if edge < 7.0 {
                 Some(if rtl {
-                    egui::Rect::from_min_max(pos2(r.left() - 100.0, r.top() - 100.0), pos2(r.right(), r.bottom() + 100.0))
-                } else {
                     egui::Rect::from_min_max(pos2(r.left(), r.top() - 100.0), pos2(r.right() + 100.0, r.bottom() + 100.0))
+                } else {
+                    egui::Rect::from_min_max(pos2(r.left() - 100.0, r.top() - 100.0), pos2(r.right(), r.bottom() + 100.0))
                 })
             } else {
                 None

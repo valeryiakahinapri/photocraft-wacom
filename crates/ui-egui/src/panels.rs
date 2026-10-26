@@ -314,7 +314,8 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     + chips_height(t.pro, t.round_chips, t.round_chips && double)
                     + 8.0
                     + if double { bx } else { bx * 2.0 + 3.0 }
-                    + 6.0;
+                    + 6.0
+                    + if t.islands { bx + 4.0 } else { 0.0 };
                 // As tall as the tools, so the colour chips sit right under them (Photoshop); a column
                 // taller than the window scrolls and keeps the chips at the bottom.
                 egui::ScrollArea::vertical()
@@ -502,8 +503,17 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 // REV7 footer (islands): Edit Toolbar + the collapse toggle — the mockup's
                 // fixed footer pinned below the scrolling tools (`mt-1 w-full pt-1`).
                 if t.islands {
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
-                        if icons::button(ui, "ellipsis", bx, false, tl!("Edit Toolbar…")).clicked() {
+                    // Expanded (80pt): the mockup's footer row — Edit Toolbar beside the
+                    // toggle. Collapsed (48pt) only the toggle fits: the ellipsis moves into
+                    // the expanded footer alone (the mockup's collapsed strip shows just the
+                    // chevron), so the island can never get stuck collapsed.
+                    let footer_layout = if double {
+                        egui::Layout::left_to_right(egui::Align::Min)
+                    } else {
+                        egui::Layout::top_down(egui::Align::Min)
+                    };
+                    ui.with_layout(footer_layout, |ui| {
+                        if double && icons::button(ui, "ellipsis", bx, false, tl!("Edit Toolbar…")).clicked() {
                             let _ = crate::menus::invoke(app, &ctx, "edit.toolbar", json!({}));
                         }
                         let (close, open) = if crate::direction::is_rtl() {
@@ -2147,13 +2157,13 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, expanded: &mut bool, 
         .show_collapsible(ui, expanded, |ui| {
             if t.islands {
                 let r = ui.max_rect();
-                // Shadow half-plane at the seam: LTR — the column sits LEFT of the rail, its
-                // seam is its right edge, so its shadow keeps x <= r.right() (the rail owns
-                // the east half); RTL mirrors. The union is the island's single shadow.
+                // Shadow half-plane at the seam: LTR layout is [central | rail | column |
+                // edge] — the column's LEFT edge is the seam, so its shadow keeps
+                // x >= r.left() (the rail owns the west half); RTL mirrors.
                 let clip = if rtl {
-                    egui::Rect::from_min_max(pos2(r.left(), r.top() - 100.0), pos2(r.right() + 100.0, r.bottom() + 100.0))
-                } else {
                     egui::Rect::from_min_max(pos2(r.left() - 100.0, r.top() - 100.0), pos2(r.right(), r.bottom() + 100.0))
+                } else {
+                    egui::Rect::from_min_max(pos2(r.left(), r.top() - 100.0), pos2(r.right() + 100.0, r.bottom() + 100.0))
                 };
                 paint_island_rect(ui.painter(), &t, r, segment_radius, t.card, Some(clip));
                 egui::Frame::NONE.inner_margin(egui::Margin::same(margin)).show(ui, |ui| {
@@ -6807,6 +6817,7 @@ mod toolbar_tests {
             crate::theme::ThemeKind::AdwaitaDark,
             crate::theme::ThemeKind::SolarizedDark,
             crate::theme::ThemeKind::BreezeDark,
+            crate::theme::ThemeKind::ModernCanvas,
         ] {
             let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
             // REV7: the default flipped to expanded (islands) — this test drives the toggle
