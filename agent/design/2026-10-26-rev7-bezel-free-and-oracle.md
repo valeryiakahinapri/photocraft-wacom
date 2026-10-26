@@ -417,3 +417,28 @@ deterministic WITHOUT seeding anything but the P0-1 items.
 **Verdict record:** round 1 = 32 findings (all folded); round 2 = GO, 3 arithmetic
 corrections + 8 completions (all folded above); no new P0s in round 2 → design FINAL.
 Implementation proceeds in the R1-9 order; implementation diffs get their own audit rounds.
+
+---
+
+# OUTCOME (2026-10-26, end of round)
+
+**Oracle: PASS — 0 of 48 checks failing** on the default state (1440×900, both sides rendered
+and compared by `tools/oracle/run.py`): L1 every region's fill matches the measured sheet on
+both sides; L2 all structural boundaries ±1px with the strong-fill gap rule (nothing solid in
+any page gap); L3 all island corners within 2px (egui arc tessellation vs CSS AA); L4 masked
+ΔE ≥99% per region / ≥99.5% global. VLM overall verdict on the side-by-side: 88/100 with the
+remaining deltas being content (icon sets, panel contents), not chrome.
+
+Implementation audit (round 3) findings all fixed en route, the biggest being: the ModernCanvas
+constructor had silently kept the OLD palette (the retune script failed mid-write; caught by
+the failing token test + the audit), the shadow-clip half-planes were inverted (layout is
+[central | rail | column | screen-edge], not rail-at-edge), the status pill needs the chrome
+gate, and the collapsed-toolbar footer didn't fit 36pt (stuck-collapse fix). The oracle itself
+root-caused four more: canvas scrollbars showed permanently (now a bar only appears when its
+axis actually scrolls — a real app-behavior improvement), the pill was 38pt (now the measured
+32pt), the pill's content covered its corners (row inset 8pt), and the seed needed a centered
+view + the floating Properties window closed + zoom with slack.
+
+E2E regression on the shipped build (d2b83eef): fold → rail retracts to a complete rounded
+island at the screen edge with the doc island expanding; expand → returns; ⇧Tab round-trip
+preserves dock+dock_expanded; console clean; storybook serves the same hash.
