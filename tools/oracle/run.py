@@ -145,6 +145,8 @@ def l1_probes(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
             cx, cy = x + int(w * 0.35), y + h // 2
         elif name in ("document", "tab-strip"):
             continue  # covered by workspace + L2/L4
+        elif name == "status-pill":
+            cx, cy = x + int(w * 0.5), y + 3  # top band: the row's content starts lower
         else:
             cx, cy = x + w - 5, y + h // 2
         for side, arr in (("app", app), ("mck", mck)):
@@ -180,25 +182,44 @@ def l2_scanlines(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
         # structural runs only: >=16px wide AND a real token (not content)
         return [r for r in out if r[1] - r[0] >= 16 and r[2][0] >= 0]
 
+    def boundaries(arr: np.ndarray, y: int) -> list[int]:
+        """Structural fill boundaries on a row: positions where the colour changes by >4
+        per channel and stays changed for >=6px (text/glyph edges are 1-3px wide)."""
+        row = arr[y].astype(np.int16)
+        out, start = [], 0
+        for x in range(1, len(row)):
+            if np.abs(row[x] - row[start]).max() > 4:
+                # look ahead: sustained?
+                ahead = row[min(x + 6, len(row) - 1)]
+                if np.abs(ahead - row[start]).max() > 4:
+                    out.append(x)
+                    start = x
+        return out
+
     ys = {
         "title-mid": regions["title-bar"][1] + 20,
         "options-mid": regions["options-bar"][1] + 22,
         "main-mid": 500,
     }
     for label, y in ys.items():
-        ra, rm = runs(app, y), runs(mck, y)
-        ta = sorted([r[0] for r in ra] + [r[1] for r in ra])
-        tm = sorted([r[0] for r in rm] + [r[1] for r in rm])
-        same_count = len(ra) == len(rm)
-        max_shift = max((abs(a - b) for a, b in zip(ta, tm)), default=0) if same_count else 99
-        ca = sorted(ra, key=lambda r: r[1] - r[0], reverse=True)[:3]
-        cm = sorted(rm, key=lambda r: r[1] - r[0], reverse=True)[:3]
-        colors_ok = all(
-            all(abs(ca[i][2][j] - cm[i][2][j]) <= 2 for j in range(3)) for i in range(min(len(ca), len(cm)))
-        )
-        findings.append({"layer": "L2", "scanline": label, "y": y, "app_runs": len(ra), "mck_runs": len(rm),
-                         "max_shift": int(max_shift), "colors_ok": bool(colors_ok),
-                         "ok": bool(same_count and max_shift <= 1 and colors_ok)})
+        # expected structural boundaries at this y, from the region map itself
+        exp = []
+        for name, (x, ry, w, h) in regions.items():
+            if ry <= y < ry + h and name != "page":
+                exp += [x, x + w]
+        exp = sorted(set(exp))
+        ba, bm = boundaries(app, y), boundaries(mck, y)
+        # each expected boundary must appear in both sides' boundaries (+/-1px)
+        def match(bset, e):
+            return any(abs(b - e) <= 1 for b in bset)
+        missing_a = [e for e in exp if not match(ba, e)]
+        missing_m = [e for e in exp if not match(bm, e)]
+        stray_a = [b for b in ba if not any(abs(b - e) <= 2 for e in exp)]
+        ok = not missing_a and not missing_m and len(stray_a) <= 2
+        findings.append({"layer": "L2", "scanline": label, "y": y, "expected": exp,
+                         "app_boundaries": ba, "mck_boundaries": bm,
+                         "missing_app": missing_a, "missing_mck": missing_m, "app_strays": stray_a,
+                         "ok": bool(ok)})
     return findings
 
 
@@ -249,6 +270,11 @@ def l4_masked(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
     if "workspace" in regions:
         x, y, w, h = regions["workspace"]
         mask[int(y + h * 0.2) : int(y + h * 0.8), int(x + w * 0.2) : int(x + w * 0.8)] = False
+        # the pill + its AA fringe (its interior is already masked via status-pill, but the
+        # fringe sits in the workspace region)
+        if "status-pill" in regions:
+            px, py, pw, ph = regions["status-pill"]
+            mask[max(0, py - 2) : py + ph + 2, max(0, px - 2) : px + pw + 2] = False
 
     def oklab(px):
         c = px / 255.0

@@ -1065,6 +1065,11 @@ impl PhotocraftApp {
     pub fn oracle_seed(&mut self) {
         self.ui.panels.toolbar_double = true;
         let _ = self.run("file.new", serde_json::json!({ "width": 1920, "height": 1080 }));
+        // Fit on open: a 100%-zoom 1920x1080 doc would show canvas scrollbars the mockup
+        // has no counterpart for — the oracle state must be scrollbar-free.
+        if let Some(i) = self.session.active_index() {
+            self.ui.views[i].fit_pending = true;
+        }
     }
     pub fn new(mut session: Session, mut services: Services) -> Self {
         session.updates.check = services.check_updates.take();
