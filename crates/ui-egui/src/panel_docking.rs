@@ -36,10 +36,10 @@ struct LegacyDrag {
 }
 
 fn cancel_legacy_drag(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
-    let key = egui::Id::new("photocraft-panel-docking").with("legacy-origin");
+    let key = egui::Id::unique("photocraft-panel-docking").with("legacy-origin");
     let previous = ctx.data_mut(|data| data.remove_temp::<LegacyDrag>(key));
     if let Some(previous) = previous {
-        craft_ui::docking::cancel_drag::<String>(ctx, egui::Id::new("photocraft-panel-docking"));
+        craft_ui::docking::cancel_drag::<String>(ctx, egui::Id::unique("photocraft-panel-docking"));
         if previous.generation != app.ui.docking_generation {
             return false;
         }
@@ -124,6 +124,13 @@ fn collapsed_members(app: &PhotocraftApp, layout: &Layout<String>) -> std::colle
         }
     }
     collapsed
+}
+
+/// The id under which the custom dock's [`egui::containers::panel::PanelState`] was stored last
+/// frame (its parent scope, which need not be the viewport's root).
+#[cfg(test)]
+pub(crate) fn shared_panel_state_id(ctx: &egui::Context) -> Option<egui::Id> {
+    ctx.data(|d| d.get_temp(egui::Id::unique("pc-shared-panel-state-id")))
 }
 
 fn first_root(layout: &Layout<String>, except: &str) -> Option<String> {
@@ -365,7 +372,7 @@ fn change(app: &mut PhotocraftApp, operation: &str, params: &Value) -> Result<Va
 }
 
 pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, width: f32, transitioning: bool, requested_width: bool) -> bool {
-    let area = egui::Id::new("photocraft-panel-docking");
+    let area = egui::Id::unique("photocraft-panel-docking");
     let stale_origin =
         ui.ctx().data_mut(|data| data.get_temp::<LegacyDrag>(area.with("legacy-origin")).is_some_and(|origin| origin.generation != app.ui.docking_generation));
     let changed_workspace = ui.ctx().data_mut(|data| {
@@ -434,7 +441,7 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, width: f32, trans
         style.panels_label = tl!("Panels").to_string();
         style.resize_label = tl!("Resize panels").to_string();
         style.resize_window_label = tl!("Resize panel window").to_string();
-        let mut area = craft_ui::docking::DockArea::new(egui::Id::new("photocraft-panel-docking"));
+        let mut area = craft_ui::docking::DockArea::new(egui::Id::unique("photocraft-panel-docking"));
         if let Some(panel) = &reveal {
             area = area.raise_panel(panel.clone());
         }
@@ -459,6 +466,11 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, width: f32, trans
     };
     let output = if layout.root.is_some() {
         let range = crate::panels::dock_width_range(ui.ctx().content_rect().width());
+        // The panel persists its size under this parent-scoped id; tests and diagnostics read it
+        // back from here rather than guessing the root scope.
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(egui::Id::unique("pc-shared-panel-state-id"), ui.scope_id().with_salt(egui::IdSalt::new("shared-panel-dock")));
+        });
         let mut panel = egui::Panel::right("shared-panel-dock")
             .default_size(if t.pro { 290.0 } else { 300.0 })
             .size_range(if transitioning { 0.0..=*range.end() } else { range.clone() })
@@ -483,7 +495,7 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, width: f32, trans
         if !output.actions.iter().any(|action| matches!(action, Action::Move { .. } | Action::Float { .. })) && cancel_legacy_drag(app, ui.ctx()) {
             return app.ui.docking.is_some();
         }
-        ui.ctx().data_mut(|data| data.remove::<LegacyDrag>(egui::Id::new("photocraft-panel-docking").with("legacy-origin")));
+        ui.ctx().data_mut(|data| data.remove::<LegacyDrag>(egui::Id::unique("photocraft-panel-docking").with("legacy-origin")));
     }
     if let Some(panel) = output.group_drag.as_ref()
         && let Some(pointer) = ui.ctx().pointer_interact_pos()
@@ -516,7 +528,7 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, width: f32, trans
 }
 
 pub(crate) fn legacy_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui, panel: &str, response: &egui::Response) {
-    let suppressed = egui::Id::new("photocraft-panel-docking").with("legacy-suppressed");
+    let suppressed = egui::Id::unique("photocraft-panel-docking").with("legacy-suppressed");
     if ui.input(|input| input.pointer.button_pressed(egui::PointerButton::Primary)) {
         ui.ctx().data_mut(|data| data.remove::<bool>(suppressed));
     }
@@ -538,10 +550,10 @@ pub(crate) fn legacy_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui, panel: &str
             egui::pos2(bounds.left(), response.rect.top()),
             egui::vec2(bounds.width().clamp(240.0, 600.0), bounds.height().clamp(200.0, 600.0)),
         );
-        if ensure(&mut layout, id).is_ok() && craft_ui::docking::begin_drag(ui.ctx(), egui::Id::new("photocraft-panel-docking"), id.to_string(), source) {
+        if ensure(&mut layout, id).is_ok() && craft_ui::docking::begin_drag(ui.ctx(), egui::Id::unique("photocraft-panel-docking"), id.to_string(), source) {
             ui.ctx().data_mut(|data| {
                 data.insert_temp(
-                    egui::Id::new("photocraft-panel-docking").with("legacy-origin"),
+                    egui::Id::unique("photocraft-panel-docking").with("legacy-origin"),
                     LegacyDrag {
                         generation: app.ui.docking_generation,
                         layout: app.ui.docking.clone(),
@@ -874,6 +886,10 @@ fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, panel: &str) {
             crate::swatches_ui::panel_menu(app, ui);
             ui.separator();
         }
+        "color" => {
+            crate::color_panel_ui::panel_menu(app, ui);
+            ui.separator();
+        }
         "history" => {
             crate::history_menu_ui::panel_menu(app, ui);
             ui.separator();
@@ -902,7 +918,7 @@ impl craft_ui::docking::DockContent<String> for PanelContent<'_> {
             target.tabs = members
                 .into_iter()
                 .filter_map(|panel| {
-                    ui.ctx().read_response(egui::Id::new("photocraft-panel-docking").with(("tab", &panel))).map(|response| (panel, response.rect))
+                    ui.ctx().read_response(egui::Id::unique("photocraft-panel-docking").with(("tab", &panel))).map(|response| (panel, response.rect))
                 })
                 .collect();
         }

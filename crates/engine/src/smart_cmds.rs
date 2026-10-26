@@ -989,6 +989,13 @@ fn replace_contents(s: &mut Session, p: &Value) -> Result<Value> {
     replace_contents_bytes(s, id, &base_name(&path), bytes)
 }
 
+/// Replace Contents with a file the caller already read, for the smart object `p` names (`layer`,
+/// else the active layer): the body of the command minus its ambient path read (#8061).
+pub fn replace_contents_from_bytes(s: &mut Session, p: &Value, file_name: &str, bytes: Vec<u8>) -> Result<Value> {
+    let id = layer_param(s, p)?;
+    replace_contents_bytes(s, id, file_name, bytes)
+}
+
 /// Replace Contents from a file's name and bytes: what the desktop and web file pickers hand over.
 pub fn replace_contents_bytes(s: &mut Session, id: LayerId, file_name: &str, bytes: Vec<u8>) -> Result<Value> {
     decode_source(file_name, &bytes)?; // fail before touching the document
@@ -1061,6 +1068,7 @@ pub fn commit_child(s: &mut Session, index: usize) -> Result<bool> {
     let bytes = Arc::new(encode_source(&child)?);
     let prev = s.active;
     s.active = Some(parent);
+    s.note_active_change();
     let r = s.edit("Edit Contents", |doc, _| {
         let ids = instances(doc, link.contents_id);
         if ids.is_empty() {
@@ -1080,6 +1088,7 @@ pub fn commit_child(s: &mut Session, index: usize) -> Result<bool> {
         Ok(())
     });
     s.active = prev;
+    s.note_active_change();
     r?;
     if let Some(st) = s.docs.get_mut(index) {
         st.saved_revision = st.revision;
