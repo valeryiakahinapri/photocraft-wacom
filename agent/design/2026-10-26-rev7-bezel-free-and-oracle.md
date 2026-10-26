@@ -241,3 +241,134 @@ The oracle also becomes the REGRESSION net for every future visual change: rerun
   to catch the "arbitrary dark fills" class of bug (it should fail on any wrong-fill region)?
 - Any place where a `surface/70 + blur` composite CANNOT be precomputed solid (busy
   background under the status bar) — what does the mockup pin instead?
+
+---
+
+# AMENDMENTS after audit round 1 (both auditors + measurement session)
+
+## R1-0 The token law: MEASURE, never compute
+
+Round-1 dispute settled by ground truth: Chrome's canvas rasterization of `oklch(0.68 0.16 250)`
+is **#3B9CF6** (verified: canvas probe + the mockup screenshot's primary dot pixel both give
+(59,156,246)); the matrix converter that passed red/white/black anchors still produced
+#5EB9FE. The browser's rasterizer is the only truth that matters — the oracle compares
+rendered pixels. `scripts/oklch_to_srgb.py` is RETIRED; the token sheet below was MEASURED
+via `agent-browser eval` canvas probes and screenshot pixel counts, cross-checked against
+the round-1 auditor's independent measurements (agreement ±1 LSB).
+
+**Measured sheet (theme.rs values):**
+
+| token | hex | | token | hex |
+|---|---|---|---|---|
+| background | `#07080A` | | popover | `#1B1D20` |
+| workspace | `#040405` | | foreground | `#E9EBEE` |
+| surface | `#121416` | | muted | `#95989D` |
+| surface-2 | `#1F2123` | | faint | `#616368` |
+| surface-3 | `#292B2F` | | primary | `#3B9CF6` |
+| gradient top | `#49A9FF` | | gradient bottom | `#2A80E2` |
+| tab/status pill solid (surface/70 over workspace) | `#0E0F10` | | segmented track (bg/50 over surface) | `#0D0E10` |
+| divide-y (white 4% over surface) | `#1B1D20` | | separators (white 6% over surface) | `#202224` |
+
+## R1-1 D1 amended (tokens)
+Add `hairline`, `workspace`, `radius_island` to `Tokens` → all ~15 literal constructors, the
+live-override macro, and REWRITE `modern_canvas_tokens_match_the_mockup` to the measured
+sheet (old assertions fail the build otherwise). Radii: sm 6 / md 7 / lg 9 / island 12.
+`card_border` → TRANSPARENT for ModernCanvas, but `window_stroke`/`menu_corner_radius` map to
+the **hairline** material (R1-5: TRANSPARENT would erase dialog edges — `apply()` maps
+card_border → window_stroke).
+
+## R1-2 D2 amended (bezel-free, enumerated)
+**P0 found by audit:** egui 0.37 `Panel` defaults `show_separator_line: true` — five stray
+1px lines today (title bottom, options bottom, status top, toolbar canvas-side, rail
+canvas-side, painted from `visuals.widgets.noninteractive.bg_stroke`). Fix:
+`.show_separator_line(!t.islands)` on ALL five chrome panels (the dock panels already do).
+The resizable dock still paints a transient hover highlight at the seam when opted out —
+acceptable affordance, documented. Stroke sites that must become hairline/NONE: peek
+(`panel_rail.rs:218`), doc tab (`canvas.rs:2808`), pill_tabs ring (`tab_strip.rs:266`),
+pill_tab (`widgets.rs:273`), card_ex track ring (`widgets.rs:157` — DELETE, the mockup's
+Segmented has no ring), DockStyle border (`panel_docking.rs:446`), island segment stroke
+(`panels.rs:30`).
+
+## R1-3 D3 amended (title bar)
+The spec's "make it transparent" was WRONG — it already is (`Frame::NONE.fill(t.page)`,
+panels.rs:793; a truly fill-less bar would expose `visuals.panel_fill` = canvas). Deltas that
+remain: `show_separator_line(false)`, height 38→40, token retune, hover pills surface-2.
+
+## R1-4 D4 amended (one-surface right side)
+The seam is THREE artifacts, not one: (a) the explicit hairline (`panel_rail.rs:93-96` —
+delete); (b) `paint_island_rect` strokes the full segment rect (`panels.rs:30` — remove
+stroke); (c) **shadow bleed** — the rail segment's blurred shadow is painted after the
+column fill and bleeds ~9px across the seam → `paint_island_rect` gains a per-segment shadow
+clip (rail clips to its own half ∪ outer edge; column likewise). Panel FRAMES keep
+`fill(t.page)` (they paint the page gaps); the ISLAND SEGMENTS fill `t.card` (corrects the
+draft). Width: drop the column's 4px left extension; dock `default_size` 328→316 so the
+island = 44+316 = 360 = mockup. `divide-y` between cards: dock.rs GAP 6→0 flush, hairline at
+the boundary, splitter hit zone becomes a 5px invisible strip. RTL in the customized
+docking path stays LTR-only (pre-existing; noted deviation, the mockup is LTR).
+
+## R1-5 D5 amended (workspace + floating status bar)
+`paint_island`/`paint_island_rect` gain a fill param (doc island fills `workspace`, not
+card). Status bar RELOCATES: under islands the bottom `status_bar` panel is not created;
+`canvas.rs` paints the floating pill inside the workspace (inset-x-2 bottom-2, radius 9,
+fill `#0E0F10`) and re-homes the SAME widget row (zoom field + doc info + Fit + jobs +
+status text) — extract the row builder into a shared fn; the bottom panel remains for
+non-island themes. Bottom insets of toolbar/dock/central flip 4→8 under islands (p-2 law).
+Tab strip: frame fill → NONE (transparent on workspace), selected pill `#0E0F10` radius 8
+no stroke, hover surface-2 radius 7, strip height 36. `workspace_area` drops its 6pt inset +
+own radius (workspace fills the whole island; dots grid and canvas backdrop clip at island
+radius 12; `pasteboard_color` pref still overrides when explicitly set). Options island
+height 42→44.
+
+## R1-6 D6 amended (toolbar)
+bx 36→32, inter-button gap→4, m→6 → widths 80 (2-col) / 48 (1-col), buttons centered.
+`toolbar_double` KEEPS its semantics; its DEFAULT flips to true (mockup default expanded;
+persisted picks survive — intended visible change). Collapse toggle moves to the fixed
+footer with PanelLeftClose/Open — **the two SVGs must be added to `assets/icons/`** (only
+panel-right.svg exists today). Edit-Toolbar button joins the fixed footer (out of the
+ScrollArea). `paint_tool_gradient` already has the 3px bar (draft was wrong); its colors fix
+to #49A9FF→#2A80E2, pill radius 7. Colour chips 20px radius 6 + 2px surface ring. Tests:
+tool_button 36→32, keep the "Toolbar" label on the moved toggle, quick-mask/screen-mode
+buttons stay (real features; the oracle masks them).
+
+## R1-7 D8 amended (radius sweep, grep-driven)
+`card_ex` becomes FLUSH sections (mockup-true): no per-card fill, no radius — cards are
+sections on the island separated by divide-y hairlines; the Segmented track remains the only
+header surface. Ladder: icon buttons 7 (`icons.rs` button_chrome/rail_button +
+`tab_strip.rs:66` overflow hover; `rail_button` "on" fill → surface-3 not card — invisible on
+card otherwise), segmented track 9 / pills 6, peek window 12, doc tab 8, layer rows 7,
+readout frames 7, chips 7, value fields 6, menus/popups 7, dialogs 9. Extra sites the draft
+missed (from audit): `notices.rs:234`, `type_panels_ui.rs:136`, `channels_panel.rs:159`,
+`move_distance.rs:204`, `brush_sections.rs:264`, `doc_props_ui.rs:121,134`,
+`filter_dialog/zoom_center.rs:79,100`, `camera_raw_ui.rs:1183`,
+`filter_preview_ui.rs:119,124` + ~15 `t.radius*` sites in panels.rs. Sweep = grep, not memory.
+
+## R1-8 Oracle amended (all three conditions accepted)
+1. **App seed**: `?oracle=1` branch in `web.rs` pre-first-frame — toolbar_double, pinned
+   tool, `file.new 1920×1080`, no dialogs. (~50 lines + test.)
+2. **Per-region L4 + token-true scanlines** (a 32×32 wrong fill is 1.8% of the toolbar
+   region → region-level FAIL even though global 99% passes); every distinct fill gets ≥1
+   L1 probe; scanlines store expected token run sequences.
+3. **Isolation**: named agent-browser session per run, `storage local clear` on the hub
+   origin before each app navigation, per-state reset, session closed in a trap.
+Plus: separate mockup route `src/routes/oracle.tsx` (file-based routing) with the mirror
+list — hide search field / title-bar right cluster / Plugins menu / second tab / floating
+task bar; tab text "Untitled" (the real default, not "untitled-1"); the app's real dock tab
+sets; the kitsune brand PNG replaces the Ps tile; solids pinned (#0E0F10 etc., measured).
+Readiness: `#photocraft_loading` removed + settle 800ms (app), `document.fonts.ready` +
+Geist assert (mockup); DPR=1 and screenshot-size asserts; backend pinned `?webgl` + console
+line asserted; area-based radius fit; L4 edge exclusion 2px, edge-dense regions ≥95%,
+gradient regions mean ΔE ≤1.5 + ≥90%; spec.json GENERATED from the mockup DOM
+(`data-oracle-region` attributes); flake taxonomy with one bounded READY_TIMEOUT retry.
+Good determinism news from audit: web locale is always English, ModernCanvas is the default,
+update prompt is inert on web, egui-memory persistence is off — a fresh-storage boot is
+deterministic WITHOUT seeding anything but the P0-1 items.
+
+## R1-9 Implementation order (audit risk ranking, revised)
+1. Separator lines + seam artifacts (R1-2/R1-4a-c) — mechanical, must land before any token
+   work so later screenshots judge real deltas.
+2. D1 token retune + test rewrite (R1-1).
+3. D5 structural (status relocation + insets + workspace island) — riskiest; oracle region
+   rects freeze only AFTER this.
+4. D4 remainder (widths, divide-y) + D3 + D6 + D7 + D8 sweep.
+5. Oracle: harness + /oracle route + app seed, then A/B fix loop.
+6. Bake → E2E regression (fold/⇧Tab lifecycle) → review.
