@@ -19,15 +19,30 @@ pub(crate) fn chrome_panel_radius(t: &Tokens) -> CornerRadius {
 /// stroke — the mockup's floating-surface look, painted behind whatever the body lays
 /// out next. Returns the painted rect.
 pub(crate) fn paint_island(ui: &mut egui::Ui, t: &Tokens) -> egui::Rect {
-    paint_island_rect(ui.painter(), t, ui.max_rect(), CornerRadius::same(t.radius.round() as u8))
+    paint_island_rect(ui.painter(), t, ui.max_rect(), CornerRadius::same(t.radius_island.round() as u8), t.card, None)
 }
 
 /// [`paint_island`] for callers that own the rect — the right side's column and rail
-/// paint one island as two segments with asymmetric corners meeting at a square seam.
-pub(crate) fn paint_island_rect(p: &egui::Painter, t: &Tokens, rect: egui::Rect, radius: CornerRadius) -> egui::Rect {
-    p.add(egui::Shadow { offset: [0, 4], blur: 18, spread: 0, color: t.shadow }.as_shape(rect, radius));
-    p.rect_filled(rect, radius, t.card);
-    p.rect_stroke(rect, radius, egui::Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
+/// paint one island as two segments with asymmetric corners meeting at a flush seam.
+///
+/// REV7 bezel-free law: no segment stroke. `shadow_clip` clips the shadow shape to a
+/// half-plane at the shared panel boundary so two abutting segments paint the island's
+/// shadow exactly once (no bleed across the seam, no doubled top/bottom edges); `None`
+/// paints the whole shadow (single islands, or the rail once it folds away detached).
+pub(crate) fn paint_island_rect(
+    p: &egui::Painter,
+    t: &Tokens,
+    rect: egui::Rect,
+    radius: CornerRadius,
+    fill: Color32,
+    shadow_clip: Option<egui::Rect>,
+) -> egui::Rect {
+    let shadow = egui::Shadow { offset: [0, 4], blur: 18, spread: 0, color: t.shadow };
+    match shadow_clip {
+        Some(clip) => p.with_clip_rect(clip.intersect(p.clip_rect())).add(shadow.as_shape(rect, radius)),
+        None => p.add(shadow.as_shape(rect, radius)),
+    };
+    p.rect_filled(rect, radius, fill);
     rect
 }
 
@@ -234,6 +249,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let (ml, mr) = if crate::direction::is_rtl() { (4, 8) } else { (8, 4) };
     crate::direction::start_panel("toolbar")
         .resizable(false)
+        .show_separator_line(!t.islands)
         .exact_size(w + 8.0 + if t.islands { 12.0 } else { 0.0 })
         .frame(if t.islands {
             egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: ml, right: mr, top: 4, bottom: 4 })
@@ -552,7 +568,9 @@ fn toolbar_icon_size(box_size: f32, pro: bool) -> f32 {
 /// pill — a 1×N gradient texture multiplied into a rounded rect — with the glyph in white and
 /// a short accent bar just outside the reading-start edge (Shell.tsx's `tool-active`).
 fn paint_tool_gradient(ui: &mut egui::Ui, t: &Tokens, r: Rect, icon: &str, glyph: f32) {
-    let (top, bottom) = (Color32::from_rgb(0x6A, 0xA9, 0xFF), Color32::from_rgb(0x52, 0x80, 0xE2));
+    // REV7: the measured mockup gradient endpoints live in the Tokens (round-1 audit caught
+    // the old hardcoded pair drifting from the sheet).
+    let (top, bottom) = (t.gradient_top, t.gradient_bottom);
     let steps = 32u32;
     let pixels = (0..steps)
         .map(|i| {
@@ -562,7 +580,7 @@ fn paint_tool_gradient(ui: &mut egui::Ui, t: &Tokens, r: Rect, icon: &str, glyph
         })
         .collect();
     let tex = ui.ctx().load_texture("pc-tool-gradient", egui::ColorImage::new([1, steps as usize], pixels), egui::TextureOptions::LINEAR);
-    let mut shape = egui::epaint::RectShape::filled(r, CornerRadius::same(t.radius_sm as u8), Color32::WHITE);
+    let mut shape = egui::epaint::RectShape::filled(r, CornerRadius::same(t.radius as u8), Color32::WHITE);
     shape.brush = Some(std::sync::Arc::new(egui::epaint::Brush { fill_texture_id: tex.id(), uv: Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)) }));
     ui.painter().add(shape);
     icons::paint(ui, r, icon, glyph, t.primary_text);
@@ -789,7 +807,8 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // so its strip only contributes the page gaps (8pt to the screen edges and below).
     let islands = t.islands;
     let bar = egui::Panel::top("title_bar")
-        .exact_size(crate::titlebar::bar_height(app, ui.ctx(), if t.pro { 32.0 } else { 38.0 }) + if islands { 12.0 } else { 0.0 })
+        .exact_size(crate::titlebar::bar_height(app, ui.ctx(), if t.pro { 32.0 } else if islands { 40.0 } else { 38.0 }) + if islands { 12.0 } else { 0.0 })
+        .show_separator_line(!islands)
         .frame(if islands {
             egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: left + 8, right: right + 8, top: 8, bottom: 4 })
         } else {
@@ -1160,6 +1179,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let narrow = app.session.prefs().workspace.narrow_options_bar();
     egui::Panel::top("options_bar")
         .exact_size(options_bar_height(t.pro, narrow) + if t.islands { 8.0 } else { 0.0 })
+        .show_separator_line(!t.islands)
         .frame(if t.islands {
             // The island shell (REV6): the strip paints the page gaps; the body paints the
             // island and adds the content padding the old strip margin provided.
@@ -1882,6 +1902,7 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     egui::Panel::bottom("status_bar")
         .exact_size(status_bar_heights(&t).0 + if t.islands { 12.0 } else { 0.0 })
+        .show_separator_line(!t.islands)
         .frame(if t.islands {
             egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 8 })
         } else {
@@ -2048,7 +2069,7 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, expanded: &mut bool, 
     let mut panel = crate::direction::end_panel("dock")
         .resizable(true)
         .default_size(if t.islands {
-            328.0
+            324.0
         } else if t.pro {
             290.0
         } else {
@@ -2065,9 +2086,11 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, expanded: &mut bool, 
     // rounded toward the screen edge — so the island's width animation is egui's own slide
     // clip. The customized dock (panel_docking) renders the same segment inside its own panel.
     let rtl = crate::direction::is_rtl();
-    let gaps = if rtl { egui::Margin { left: 8, right: 4, top: 4, bottom: 4 } } else { egui::Margin { left: 4, right: 8, top: 4, bottom: 4 } };
+    // REV7 one-surface: the column's seam-side margin is 0 so its segment abuts the rail's
+    // flush (no page gap between them — the mockup's right side is ONE island).
+    let gaps = if rtl { egui::Margin { left: 8, right: 0, top: 4, bottom: 4 } } else { egui::Margin { left: 0, right: 8, top: 4, bottom: 4 } };
     let segment_radius = if t.islands {
-        let r = t.radius.round() as u8;
+        let r = t.radius_island.round() as u8;
         if rtl { egui::CornerRadius { nw: r, ne: 0, sw: r, se: 0 } } else { egui::CornerRadius { nw: 0, ne: r, sw: 0, se: r } }
     } else {
         CornerRadius::ZERO
@@ -2080,13 +2103,16 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, expanded: &mut bool, 
         })
         .show_collapsible(ui, expanded, |ui| {
             if t.islands {
-                let mut r = ui.max_rect();
-                if rtl {
-                    r.max.x += 4.0
+                let r = ui.max_rect();
+                // Shadow half-plane at the seam: LTR — the column sits LEFT of the rail, its
+                // seam is its right edge, so its shadow keeps x <= r.right() (the rail owns
+                // the east half); RTL mirrors. The union is the island's single shadow.
+                let clip = if rtl {
+                    egui::Rect::from_min_max(pos2(r.left(), r.top() - 100.0), pos2(r.right() + 100.0, r.bottom() + 100.0))
                 } else {
-                    r.min.x -= 4.0
-                }
-                paint_island_rect(ui.painter(), &t, r, segment_radius);
+                    egui::Rect::from_min_max(pos2(r.left() - 100.0, r.top() - 100.0), pos2(r.right(), r.bottom() + 100.0))
+                };
+                paint_island_rect(ui.painter(), &t, r, segment_radius, t.card, Some(clip));
                 egui::Frame::NONE.inner_margin(egui::Margin::same(margin)).show(ui, |ui| {
                     // Groups keep their heights whatever they show (#88): see `dock`.
                     crate::dock::show(app, ui, &shown, dock_body);

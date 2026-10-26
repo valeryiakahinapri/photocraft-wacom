@@ -224,6 +224,20 @@ pub struct Tokens {
     pub page: Color32,
     /// Popover / flyout fill (the rail peek, menus): slightly lifted from `card`.
     pub popover: Color32,
+    /// White-alpha edge material (3.5% over card in modern-canvas): window/menu strokes
+    /// and divide hairlines under the bezel-free law (REV7).
+    pub hairline: Color32,
+    /// The document workspace fill — darker than the page under islands (REV7).
+    pub workspace: Color32,
+    /// Island corner radius (12 in modern-canvas; ladder apex, REV7).
+    pub radius_island: f32,
+    /// The active-tool / primary gradient endpoints (REV7).
+    pub gradient_top: Color32,
+    pub gradient_bottom: Color32,
+    /// The doc-tab and status-pill solid (surface over workspace; REV7).
+    pub pill_fill: Color32,
+    /// The Segmented control's track fill (background over surface; REV7).
+    pub track_fill: Color32,
     /// Modern-canvas shell: chrome strips become page-filled with rounded islands
     /// (the title row stays transparent; see REV6 in the agent design docs).
     pub islands: bool,
@@ -350,6 +364,13 @@ impl Tokens {
                 page: Color32::from_rgb(30, 30, 30),
                 popover: Color32::from_rgb(50, 50, 50),
                 islands: false,
+                hairline: Color32::from_rgb(30, 30, 30),
+                workspace: Color32::from_rgb(40, 40, 40),
+                radius_island: 6.0,
+                gradient_top: Color32::from_rgb(55, 142, 240),
+                gradient_bottom: Color32::from_rgb(55, 142, 240),
+                pill_fill: Color32::from_rgb(66, 66, 66),
+                track_fill: Color32::from_rgb(36, 36, 36),
             },
             // The modern-canvas-studio mockup (REV6): graphite islands floating on a
             // near-black page, hairline separations, small radii (3/5/6), cool-blue accent.
@@ -394,9 +415,16 @@ impl Tokens {
                 caption_close: Color32::from_rgb(196, 43, 28),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
-                page: Color32::from_rgb(0x0B, 0x0C, 0x0E),
-                popover: Color32::from_rgb(0x1C, 0x1D, 0x20),
+                page: Color32::from_rgb(0x07, 0x08, 0x0A),
+                popover: Color32::from_rgb(0x1B, 0x1D, 0x20),
                 islands: true,
+                hairline: Color32::from_rgb(0x1A, 0x1C, 0x1E),
+                workspace: Color32::from_rgb(0x04, 0x04, 0x05),
+                radius_island: 12.0,
+                gradient_top: Color32::from_rgb(0x49, 0xA9, 0xFF),
+                gradient_bottom: Color32::from_rgb(0x2A, 0x80, 0xE2),
+                pill_fill: Color32::from_rgb(0x0E, 0x0F, 0x10),
+                track_fill: Color32::from_rgb(0x0D, 0x0E, 0x10),
             },
             ThemeKind::Studio => Tokens {
                 kind,
@@ -440,6 +468,13 @@ impl Tokens {
                 page: Color32::from_rgb(14, 14, 15),
                 popover: Color32::from_rgb(26, 26, 28),
                 islands: false,
+                hairline: Color32::from_rgb(38, 38, 42),
+                workspace: Color32::from_rgb(14, 14, 15),
+                radius_island: 12.0,
+                gradient_top: Color32::from_rgb(246, 246, 248),
+                gradient_bottom: Color32::from_rgb(246, 246, 248),
+                pill_fill: Color32::from_rgb(44, 44, 48),
+                track_fill: Color32::from_rgb(35, 35, 38),
             },
             ThemeKind::StudioLight => Tokens {
                 kind,
@@ -483,6 +518,13 @@ impl Tokens {
                 page: Color32::from_rgb(226, 226, 230),
                 popover: Color32::from_rgb(252, 252, 253),
                 islands: false,
+                hairline: Color32::from_rgb(226, 226, 232),
+                workspace: Color32::from_rgb(226, 226, 230),
+                radius_island: 12.0,
+                gradient_top: Color32::from_rgb(20, 20, 24),
+                gradient_bottom: Color32::from_rgb(20, 20, 24),
+                pill_fill: Color32::from_rgb(232, 232, 237),
+                track_fill: Color32::from_rgb(242, 242, 245),
             },
             ThemeKind::Classic => Tokens {
                 kind,
@@ -526,6 +568,13 @@ impl Tokens {
                 page: Color32::from_rgb(128, 128, 128),
                 popover: Color32::from_rgb(212, 208, 200),
                 islands: false,
+                hairline: Color32::from_rgb(128, 128, 128),
+                workspace: Color32::from_rgb(128, 128, 128),
+                radius_island: 0.0,
+                gradient_top: Color32::from_rgb(212, 208, 200),
+                gradient_bottom: Color32::from_rgb(212, 208, 200),
+                pill_fill: Color32::from_rgb(226, 222, 214),
+                track_fill: Color32::WHITE,
             },
             // libadwaita's named colours (window, sidebar, card, view, accent, destructive) and
             // radii (6 px buttons, 12 px cards), mapped onto the Studio layout. GNOME's close
@@ -572,6 +621,13 @@ impl Tokens {
                 page: Color32::from_rgb(222, 222, 223),
                 popover: Color32::WHITE,
                 islands: false,
+                hairline: Color32::from_rgb(222, 222, 225),
+                workspace: Color32::from_rgb(222, 222, 223),
+                radius_island: 12.0,
+                gradient_top: Color32::from_rgb(53, 132, 228),
+                gradient_bottom: Color32::from_rgb(53, 132, 228),
+                pill_fill: Color32::from_rgb(226, 226, 229),
+                track_fill: Color32::from_rgb(235, 235, 237),
             },
             ThemeKind::AdwaitaDark => Tokens {
                 kind,
@@ -615,6 +671,13 @@ impl Tokens {
                 page: Color32::from_rgb(29, 29, 32),
                 popover: Color32::from_rgb(54, 54, 58),
                 islands: false,
+                hairline: Color32::from_rgb(24, 24, 27),
+                workspace: Color32::from_rgb(29, 29, 32),
+                radius_island: 12.0,
+                gradient_top: Color32::from_rgb(53, 132, 228),
+                gradient_bottom: Color32::from_rgb(53, 132, 228),
+                pill_fill: Color32::from_rgb(72, 72, 76),
+                track_fill: Color32::from_rgb(64, 64, 68),
             },
             // The light counterpart, adapted the same way: our own values, chosen a few levels
             // from Breeze Light's surfaces so the app blends into a Plasma desktop without being a
@@ -664,6 +727,13 @@ impl Tokens {
                 page: Color32::from_rgb(219, 222, 226),
                 popover: Color32::from_rgb(236, 238, 241),
                 islands: false,
+                hairline: Color32::from_rgb(214, 218, 222),
+                workspace: Color32::from_rgb(219, 222, 226),
+                radius_island: 6.0,
+                gradient_top: Color32::from_rgb(35, 122, 180),
+                gradient_bottom: Color32::from_rgb(35, 122, 180),
+                pill_fill: Color32::from_rgb(226, 230, 235),
+                track_fill: Color32::from_rgb(249, 250, 252),
             },
             // An adaptation of KDE Plasma's Breeze Dark look on the Studio layout, not a copy: our
             // own values, chosen a few levels from Breeze Dark's surfaces (the darkest canvas, then
@@ -717,6 +787,13 @@ impl Tokens {
                 page: Color32::from_rgb(17, 20, 24),
                 popover: Color32::from_rgb(29, 33, 38),
                 islands: false,
+                hairline: Color32::from_rgb(46, 50, 54),
+                workspace: Color32::from_rgb(17, 20, 24),
+                radius_island: 6.0,
+                gradient_top: Color32::from_rgb(30, 118, 176),
+                gradient_bottom: Color32::from_rgb(30, 118, 176),
+                pill_fill: Color32::from_rgb(50, 54, 59),
+                track_fill: Color32::from_rgb(38, 42, 48),
             },
             // Soft Dark: our own low-contrast palette on the Studio layout. Muted violet-grey
             // surfaces (never near-black), softened off-white text and a periwinkle accent; the
@@ -763,6 +840,13 @@ impl Tokens {
                 page: Color32::from_rgb(40, 40, 48),
                 popover: Color32::from_rgb(54, 54, 64),
                 islands: false,
+                hairline: Color32::from_rgb(36, 36, 44),
+                workspace: Color32::from_rgb(40, 40, 48),
+                radius_island: 14.0,
+                gradient_top: Color32::from_rgb(86, 104, 196),
+                gradient_bottom: Color32::from_rgb(86, 104, 196),
+                pill_fill: Color32::from_rgb(68, 68, 80),
+                track_fill: Color32::from_rgb(64, 64, 75),
             },
             // Soft Light: pale violet-grey surfaces, softened dark-violet text (not black) and a
             // periwinkle accent, with the same generous radii as Soft Dark.
@@ -808,6 +892,13 @@ impl Tokens {
                 page: Color32::from_rgb(218, 216, 224),
                 popover: Color32::from_rgb(240, 238, 243),
                 islands: false,
+                hairline: Color32::from_rgb(210, 207, 218),
+                workspace: Color32::from_rgb(218, 216, 224),
+                radius_island: 14.0,
+                gradient_top: Color32::from_rgb(80, 98, 190),
+                gradient_bottom: Color32::from_rgb(80, 98, 190),
+                pill_fill: Color32::from_rgb(228, 226, 234),
+                track_fill: Color32::from_rgb(250, 249, 252),
             },
             // Ethan Schoonover's Solarized Dark palette: base03 canvas, base02 surfaces, base0
             // body text and the Solarized blue accent. https://ethanschoonover.com/solarized/
@@ -854,6 +945,13 @@ impl Tokens {
                 page: Color32::from_rgb(0, 43, 54),
                 popover: Color32::from_rgb(7, 54, 66),
                 islands: false,
+                hairline: Color32::from_rgb(0, 37, 47),
+                workspace: Color32::from_rgb(0, 43, 54),
+                radius_island: 12.0,
+                gradient_top: Color32::from_rgb(38, 139, 210),
+                gradient_bottom: Color32::from_rgb(38, 139, 210),
+                pill_fill: Color32::from_rgb(14, 74, 90),
+                track_fill: Color32::from_rgb(0, 37, 47),
             },
         }
     }
@@ -1120,7 +1218,9 @@ pub fn apply(ctx: &egui::Context, kind: ThemeKind) {
     let mut v = if t.dark() { Visuals::dark() } else { Visuals::light() };
     v.panel_fill = t.canvas;
     v.window_fill = t.card;
-    v.window_stroke = Stroke::new(1.0, t.card_border);
+    // REV7 bezel-free law: modern-canvas windows/menus keep a hairline edge (never the
+    // card_border, which is transparent there — a borderless window would melt into the page).
+    v.window_stroke = if t.islands { Stroke::new(1.0, t.hairline) } else { Stroke::new(1.0, t.card_border) };
     v.extreme_bg_color = t.field;
     v.faint_bg_color = t.card;
     v.code_bg_color = t.field;
@@ -1141,7 +1241,7 @@ pub fn apply(ctx: &egui::Context, kind: ThemeKind) {
     let w = &mut v.widgets;
     w.noninteractive.bg_fill = t.card;
     w.noninteractive.weak_bg_fill = t.card;
-    w.noninteractive.bg_stroke = Stroke::new(1.0, t.separator);
+    w.noninteractive.bg_stroke = if t.islands { Stroke::new(1.0, t.hairline) } else { Stroke::new(1.0, t.separator) };
     w.noninteractive.fg_stroke = Stroke::new(1.0, t.text_dim);
     w.noninteractive.corner_radius = r;
     for (wv, bg, stroke) in [
@@ -1711,21 +1811,34 @@ mod modern_canvas_tests {
     /// modern-canvas-studio stylesheet (agent scripts/oklch_tokens.py).
     #[test]
     fn modern_canvas_tokens_match_the_mockup() {
+        // REV7: every value below is MEASURED from the browser's own oklch rasterization of
+        // the mockup (round-1 audit: matrix converters drift; the browser is the oracle's
+        // renderer, so its output is the sheet — see the design doc's R1-0 law).
         let t = Tokens::for_kind(ThemeKind::ModernCanvas);
-        assert_eq!(t.page, Color32::from_rgb(0x0B, 0x0C, 0x0E), "page background");
-        assert_eq!(t.canvas, Color32::from_rgb(0x06, 0x06, 0x07), "workspace");
-        assert_eq!(t.card, Color32::from_rgb(0x16, 0x17, 0x19), "island surface");
+        assert_eq!(t.page, Color32::from_rgb(0x07, 0x08, 0x0A), "page background");
+        assert_eq!(t.workspace, Color32::from_rgb(0x04, 0x04, 0x05), "workspace");
+        assert_eq!(t.canvas, t.workspace, "the pasteboard is the workspace shade");
+        assert_eq!(t.card, Color32::from_rgb(0x12, 0x14, 0x16), "island surface");
         assert_eq!(t.hover, Color32::from_rgb(0x1F, 0x21, 0x23), "surface-2");
-        assert_eq!(t.pressed, Color32::from_rgb(0x2A, 0x2B, 0x2F), "surface-3");
-        assert_eq!(t.popover, Color32::from_rgb(0x1C, 0x1D, 0x20), "flyout");
-        assert_eq!(t.text, Color32::from_rgb(0xEA, 0xEB, 0xEE), "foreground");
-        assert_eq!(t.text_dim, Color32::from_rgb(0x96, 0x98, 0x9D), "muted foreground");
-        assert_eq!(t.accent, Color32::from_rgb(0x5E, 0x9C, 0xF6), "primary");
+        assert_eq!(t.pressed, Color32::from_rgb(0x29, 0x2B, 0x2F), "surface-3");
+        assert_eq!(t.popover, Color32::from_rgb(0x1B, 0x1D, 0x20), "flyout");
+        assert_eq!(t.text, Color32::from_rgb(0xE9, 0xEB, 0xEE), "foreground");
+        assert_eq!(t.text_dim, Color32::from_rgb(0x95, 0x98, 0x9D), "muted foreground");
+        assert_eq!(t.accent, Color32::from_rgb(0x3B, 0x9C, 0xF6), "primary");
         assert_eq!(t.primary_bg, t.accent, "primary buttons use the accent, not Studio's white");
         assert_eq!(t.primary_text, Color32::from_rgb(0xFC, 0xFC, 0xFC));
-        assert_eq!(t.separator, Color32::from_rgb(0x22, 0x23, 0x24), "hairline");
-        assert_eq!(t.row_selected, Color32::from_rgb(0x21, 0x22, 0x23), "primary 15% over surface");
-        assert_eq!((t.radius_sm, t.radius, t.radius_lg), (3.0, 5.0, 6.0), "the mockup's small radii");
+        assert_eq!(t.separator, Color32::from_rgb(0x20, 0x22, 0x24), "6% white separators");
+        assert_eq!(t.hairline, Color32::from_rgb(0x1A, 0x1C, 0x1E), "3.5% white hairline");
+        assert_eq!(t.field, Color32::from_rgb(0x27, 0x29, 0x2B), "9% white input");
+        assert_eq!(t.field_border, Color32::from_rgb(0x1E, 0x20, 0x22), "5% white border");
+        assert_eq!(t.canvas_dot, Color32::from_rgb(0x0A, 0x0A, 0x0B), "2.5% white dots");
+        assert_eq!(t.row_selected, Color32::from_rgb(0x18, 0x28, 0x37), "primary 15% over surface");
+        assert_eq!(t.pill_fill, Color32::from_rgb(0x0E, 0x0F, 0x10), "surface/70 over workspace");
+        assert_eq!(t.track_fill, Color32::from_rgb(0x0D, 0x0E, 0x10), "background/50 over surface");
+        assert_eq!(t.gradient_top, Color32::from_rgb(0x49, 0xA9, 0xFF), "gradient top");
+        assert_eq!(t.gradient_bottom, Color32::from_rgb(0x2A, 0x80, 0xE2), "gradient bottom");
+        assert_eq!((t.radius_sm, t.radius, t.radius_lg, t.radius_island), (6.0, 7.0, 9.0, 12.0), "the radius ladder");
+        assert_eq!(t.card_border, Color32::TRANSPARENT, "bezel-free");
         assert!(t.islands, "the island shell");
         assert!(!t.pro, "Studio grammar (pill headers, non-pro status)");
         assert!(t.dark(), "a dark theme — is_dark() must list it");

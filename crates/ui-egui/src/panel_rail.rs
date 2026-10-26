@@ -62,10 +62,13 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
     };
     let frame = if t.islands {
         let edge = edge as i8;
+        // REV7 one-surface: the seam-side margin is 0 — the rail's segment sits flush against
+        // the column's (one island, nothing between them); the animated `edge` margin keeps
+        // revealing the rounded screen-edge corners as the column folds away.
         if rtl {
             egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 8, right: edge, top: 4, bottom: 4 })
         } else {
-            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 4, right: edge, top: 4, bottom: 4 })
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 0, right: edge, top: 4, bottom: 4 })
         }
     } else {
         egui::Frame::NONE
@@ -74,26 +77,34 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
             .outer_margin(egui::Margin::same(4))
             .inner_margin(egui::Margin::symmetric(4, 8))
     };
-    let resp = crate::direction::end_panel("rail").resizable(false).exact_size(if t.islands { rw + 4.0 + edge } else { rw }).frame(frame).show(ui, |ui| {
+    let resp = crate::direction::end_panel("rail").resizable(false).show_separator_line(!t.islands).exact_size(if t.islands { rw + edge } else { rw }).frame(frame).show(ui, |ui| {
         if t.islands {
-            // The rail segment of the right-side island: rounded toward the canvas,
+            // The rail segment of the right-side island: rounded toward the screen edge,
             // square at the seam while the column claims, all four corners once folded
             // (the edge margin's swing carries the seam-side rounding with it).
             let r = ui.max_rect();
-            let rr = t.radius.round() as u8;
+            let rr = t.radius_island.round() as u8;
             let seam_round = (rr as f32 * (edge / 8.0)).round() as u8;
             let radius = if rtl {
                 egui::CornerRadius { nw: seam_round, ne: rr, sw: seam_round, se: rr }
             } else {
                 egui::CornerRadius { nw: rr, ne: seam_round, sw: rr, se: seam_round }
             };
-            crate::panels::paint_island_rect(ui.painter(), &t, r, radius);
-            // The mockup rail's `border-r`: a hairline at the seam, only while the column
-            // claims its half of the island.
-            if edge < 7.0 {
-                let x = if rtl { r.left() } else { r.right() };
-                ui.painter().line_segment([pos2(x, r.top()), pos2(x, r.bottom())], Stroke::new(1.0, t.separator));
-            }
+            // REV7: nothing separates the rail from the column — no seam hairline, and the
+            // shadow clips to the rail's half while the column claims its own (folded away,
+            // the rail is the whole island and paints the full shadow).
+            // LTR: the rail sits at the far right; its seam is the LEFT edge — keep the
+            // shadow at x >= r.left(). RTL mirrors (seam = right edge).
+            let shadow_clip = if edge < 7.0 {
+                Some(if rtl {
+                    egui::Rect::from_min_max(pos2(r.left() - 100.0, r.top() - 100.0), pos2(r.right(), r.bottom() + 100.0))
+                } else {
+                    egui::Rect::from_min_max(pos2(r.left(), r.top() - 100.0), pos2(r.right() + 100.0, r.bottom() + 100.0))
+                })
+            } else {
+                None
+            };
+            crate::panels::paint_island_rect(ui.painter(), &t, r, radius, t.card, shadow_clip);
         } else {
             // The separator is on the canvas side; the outer margin puts the island's edge 4px
             // further out than the content rect, so the line clears it by 2px at ±10.
