@@ -372,3 +372,48 @@ deterministic WITHOUT seeding anything but the P0-1 items.
 4. D4 remainder (widths, divide-y) + D3 + D6 + D7 + D8 sweep.
 5. Oracle: harness + /oracle route + app seed, then A/B fix loop.
 6. Bake → E2E regression (fold/⇧Tab lifecycle) → review.
+
+---
+
+# ROUND-2 ADDENDUM (auditor GO, corrections folded)
+
+- **R2-1 dock width:** `default_size` 328→**324** under islands with frame gaps L0/R8 → column
+  segment 316 → island 44+316 = **360**. (The draft's "316" produced a 352 island.)
+- **R2-2 seam gap trap:** the column frame's LEFT margin → **0** under islands (the 4px left
+  extension existed to cancel it); then delete the extension. Segments flush at the shared
+  panel boundary — which is also the shadow-clip split line.
+- **R2-3 toolbar widths:** island targets literal **80 / 48** (island widths; panel totals
+  92/60 with the 8 screen-edge + 4 canvas-side page gaps); `exact_size` drops the legacy
+  `+8` under islands; bx=32, item_spacing.x=4, m=6; single-column content centered.
+- **R2-4 shadow clip:** half-plane at the shared panel boundary via
+  `painter.with_clip_rect(clip.intersect(ui.clip_rect()))` (in-repo precedent
+  tab_strip.rs:272); single-mesh shadow + scissor = hard edge at the seam (desired between
+  opaque fills); NO clip when the rail is detached (`edge >= 7.0`). Signature:
+  `paint_island_rect(p, t, rect, radius, fill, shadow_clip: Option<Rect>)`.
+- **R2-5 status pill coverage:** paint once in **`document_area()` after `documents()`**
+  (island rect captured BEFORE documents consumes it) — covers home/empty/card/doc branches
+  in one place; jobs/status text keep their only surface.
+- **R2-6 status gate at the call site:** `lib.rs` skips the bottom panel under islands
+  (not inside `status_bar()`, which tests call directly); extract `status_row(app, ui, t,
+  control_h)` — borrow-clean; pill interactive via `ui.scope_builder(max_rect(pill))` —
+  later widgets win hit-testing (tab-close-X precedent canvas.rs:2796/2826).
+- **R2-7 serde trap:** `toolbar_double` needs `#[serde(default = "yes")]`; the two
+  initial-state tests set it explicitly.
+- **R2-8 backdrop site:** `canvas.rs:3684` backdrop radius → island radius; backdrop fill →
+  `workspace` (pasteboard_color still overrides).
+- **R2-9 remaining measured tokens:** hairline `#1A1C1E` (3.5% white/surface), field
+  `#27292B` (9%), field_border `#1E2022` (5%), canvas_dot `#0A0A0B` (2.5% white/workspace),
+  row_selected `#182837` (primary 15%/surface). Token homes: tab/status pill `#0E0F10` and
+  segmented track `#0D0E10` become Tokens fields; the tool-gradient pair `#49A9FF→#2A80E2`
+  moves into Tokens (today hardcoded panels.rs:555). Menu stroke = `noninteractive.bg_stroke`
+  → hairline under islands (theme.rs:1144). §1's computed table is SUPERSEDED by R1-0.
+- **R2-10 oracle seed placement:** `pub fn oracle_seed(app)` in ui-egui; web.rs calls it
+  inside the app-creator closure AFTER `PhotocraftApp::new` (prefs load inside new();
+  `file.new` with explicit w/h bypasses the New dialog — menus.rs:220-224; pre-frame
+  `app.run` proven safe). `q` moves into the closure.
+- **R2-11 order note:** spec.json region rects generate AFTER implementation step 4 (step 4
+  also moves rects: toolbar 92/60, dock 360, title 40, options 44).
+
+**Verdict record:** round 1 = 32 findings (all folded); round 2 = GO, 3 arithmetic
+corrections + 8 completions (all folded above); no new P0s in round 2 → design FINAL.
+Implementation proceeds in the R1-9 order; implementation diffs get their own audit rounds.
