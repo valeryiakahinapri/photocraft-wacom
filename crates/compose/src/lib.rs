@@ -19,6 +19,7 @@
 pub mod adjust;
 pub mod advanced;
 pub mod bounds;
+pub mod cmyk;
 pub mod effects;
 pub mod fill_layout;
 pub mod filter_mask;
@@ -343,9 +344,12 @@ pub fn band_rows_for(width: u32, requested: i32) -> i32 {
 /// leaves colour behind in CMYK (K = 100%) and Lab (neutral a/b = 0.5), and those pixels would
 /// otherwise count as content: the result would span the whole canvas.
 ///
-/// A CMYK document of plain Normal layers is composited in its ink values instead
-/// ([`native::flatten_cmyk`]), so flattening doesn't round-trip its pixels through RGB (#3778),
-/// and a Lab one in its L, a and b ([`native_lab::flatten_lab`]).
+/// A CMYK document flattened to CMYK is composited in its ink values instead, so flattening
+/// doesn't round-trip its pixels through RGB: plain Normal layers by [`native::flatten_cmyk`]
+/// (#3778), and masks, groups, clipping, other blend modes and the other layer kinds by [`cmyk`]
+/// where its layers mix on their inks (#2220). Otherwise the composite goes back to CMYK through
+/// the document's own profile, the one its layers were read through. A Lab document of plain
+/// layers is composited in its L, a and b ([`native_lab::flatten_lab`]).
 pub fn flatten_to_surface(doc: &Document, fmt: photocraft_color::PixelFormat, background: Option<[f32; 3]>) -> Surface {
     composite_to_surface(doc, doc.bounds(), fmt, background)
 }
@@ -363,13 +367,17 @@ pub fn composite_to_surface(doc: &Document, rect: Rect, fmt: photocraft_color::P
     {
         return s;
     }
+    let space = cmyk_space(doc);
+    let to_cmyk = fmt.mode == photocraft_color::ColorMode::Cmyk && doc.mode == photocraft_color::ColorMode::Cmyk;
+    if to_cmyk && cmyk::renders_inks(doc) {
+        return composite_inks_to_surface(doc, rect, fmt, background, space.as_ref());
+    }
+    // The composite separates back to CMYK through the document's own profile, the one its
+    // pixels were read through.
     let mut s = Surface::new(fmt);
     let n = fmt.channels();
     let empty = s.default_pixel();
     let mut data = Vec::new();
-    // The composite separates back to CMYK through the document's own profile, the one its
-    // pixels were read through.
-    let cmyk = cmyk_space(doc);
     let _ = render_bands(doc, rect, 0, |band| -> Result<(), ()> {
         let band = match background {
             Some(bg) => band.over_background(bg),
@@ -377,7 +385,7 @@ pub fn composite_to_surface(doc: &Document, rect: Rect, fmt: photocraft_color::P
         };
         data.clear();
         data.resize(band.px.len() * n, 0.0);
-        photocraft_color::convert::with_cmyk_space(cmyk.as_ref(), || {
+        photocraft_color::convert::with_cmyk_space(space.as_ref(), || {
             for (p, out) in band.px.iter().zip(data.chunks_exact_mut(n)) {
                 if fmt.alpha && (p[3] <= 0.0 || p[3].is_nan()) && empty.len() == n {
                     out.copy_from_slice(&empty);
@@ -386,6 +394,51 @@ pub fn composite_to_surface(doc: &Document, rect: Rect, fmt: photocraft_color::P
                 }
             }
         });
+        s.write_region(band.rect, &data);
+        Ok(())
+    });
+    s.prune();
+    s
+}
+
+/// One CMYK pixel's output channels into `data`: its inks (over `paper` when given) and alpha.
+fn push_ink_pixel(data: &mut Vec<f32>, p: &[f32; 5], paper: Option<[f32; 4]>, fmt: photocraft_color::PixelFormat, empty: &[f32]) {
+    if paper.is_none() && fmt.alpha && (p[4] <= 0.0 || p[4].is_nan()) && empty.len() == fmt.channels() {
+        data.extend_from_slice(empty);
+        return;
+    }
+    // Over the paper (fully covered pixels keep their inks exactly), or straight.
+    let ink = |c: usize| match paper {
+        Some(bg) if p[4] < 1.0 => p[c] * p[4] + bg[c] * (1.0 - p[4]),
+        _ => p[c],
+    };
+    data.extend((0..4).map(ink));
+    if fmt.alpha {
+        data.push(if paper.is_some() { 1.0 } else { p[4] });
+    }
+}
+
+/// [`composite_to_surface`] for a CMYK document flattened to CMYK, composited in its inks.
+fn composite_inks_to_surface(
+    doc: &Document,
+    rect: Rect,
+    fmt: photocraft_color::PixelFormat,
+    background: Option<[f32; 3]>,
+    space: Option<&std::sync::Arc<photocraft_color::convert::CmykSpace>>,
+) -> Surface {
+    let mut s = Surface::new(fmt);
+    let n = fmt.channels();
+    let empty = s.default_pixel();
+    let mut data = Vec::new();
+    // White paper is no ink; another background colour goes through the profile.
+    let paper = background
+        .map(|bg| if bg == [1.0; 3] { [0.0; 4] } else { photocraft_color::convert::with_cmyk_space(space, || photocraft_color::convert::rgb_to_cmyk(bg)) });
+    let _ = cmyk::render_cmyk_bands(doc, rect, 0, |band| -> Result<(), ()> {
+        data.clear();
+        data.reserve(band.px.len() * n);
+        for p in &band.px {
+            push_ink_pixel(&mut data, p, paper, fmt, &empty);
+        }
         s.write_region(band.rect, &data);
         Ok(())
     });
@@ -2300,6 +2353,41 @@ fn effect_maps(layer: &Layer, rect: Rect, cx: &Ctx) -> std::sync::Arc<effects::F
     cx.fx_maps.lock().unwrap_or_else(|e| e.into_inner()).entry(key).or_insert((maps, clipped)).0.clone()
 }
 
+fn build_fx_slot_maps(layer: &Layer, region: Rect, key: u64, cx: &Ctx, slot: &FxSlot) -> std::sync::Arc<effects::FxMaps> {
+    let shape: Vec<f32> = if region.is_empty() { Vec::new() } else { effect_shape(layer, region, cx) };
+    let maps = effects::build_maps_prepared(layer, shape, region, &cx.light, &texture_ctx(layer, region, cx), cx.patterns);
+    let mut pin = Vec::new();
+    layer_identity(layer, &mut std::collections::hash_map::DefaultHasher::new(), &mut |t| pin.push(std::sync::Arc::downgrade(t)));
+    // The maps, plus what each reserved tile address keeps allocated.
+    let bytes = maps.bytes().saturating_add(pin.len().saturating_mul(std::mem::size_of::<photocraft_raster::Tile>() + 2 * std::mem::size_of::<usize>()));
+    let maps = std::sync::Arc::new(maps);
+    if slot.set(FxEntry { maps: maps.clone(), _pin: pin, bytes }).is_ok() {
+        // Counted exactly once, by the build that filled the slot, and only while the
+        // slot is still cached (eviction may have dropped it meanwhile).
+        let mut c = fx_cache().lock().unwrap_or_else(|e| e.into_inner());
+        if c.map.get(&key).is_some_and(|s| std::sync::Arc::ptr_eq(s, slot)) {
+            c.bytes += bytes;
+        }
+    }
+    // A concurrent build that finished first wins, so every tile shares one map.
+    slot.get().map_or(maps, |e| e.maps.clone())
+}
+
+fn evict_fx_cache_over_budget(key: u64) {
+    let mut c = fx_cache().lock().unwrap_or_else(|e| e.into_inner());
+    let budget = effect_cache_budget();
+    while c.bytes > budget && c.order.len() > 1 {
+        let Some(old) = c.order.pop_front() else { break };
+        if old == key {
+            c.order.push_back(old);
+            continue;
+        }
+        if let Some(s) = c.map.remove(&old) {
+            c.bytes = c.bytes.saturating_sub(s.get().map_or(0, |e| e.bytes));
+        }
+    }
+}
+
 /// The layer's effect maps from the global cache, built on a miss.
 ///
 /// Never waits for another thread's build (#276): this can run on a Rayon worker inside a tile,
@@ -2321,40 +2409,10 @@ fn cached_effect_maps(layer: &Layer, region: Rect, key: u64, cx: &Ctx) -> std::s
     };
     let maps = match slot.get() {
         Some(e) => e.maps.clone(),
-        None => {
-            let shape: Vec<f32> = if region.is_empty() { Vec::new() } else { effect_shape(layer, region, cx) };
-            let maps = effects::build_maps_prepared(layer, shape, region, &cx.light, &texture_ctx(layer, region, cx), cx.patterns);
-            let mut pin = Vec::new();
-            layer_identity(layer, &mut std::collections::hash_map::DefaultHasher::new(), &mut |t| pin.push(std::sync::Arc::downgrade(t)));
-            // The maps, plus what each reserved tile address keeps allocated.
-            let bytes =
-                maps.bytes().saturating_add(pin.len().saturating_mul(std::mem::size_of::<photocraft_raster::Tile>() + 2 * std::mem::size_of::<usize>()));
-            let maps = std::sync::Arc::new(maps);
-            if slot.set(FxEntry { maps: maps.clone(), _pin: pin, bytes }).is_ok() {
-                // Counted exactly once, by the build that filled the slot, and only while the
-                // slot is still cached (eviction may have dropped it meanwhile).
-                let mut c = fx_cache().lock().unwrap_or_else(|e| e.into_inner());
-                if c.map.get(&key).is_some_and(|s| std::sync::Arc::ptr_eq(s, &slot)) {
-                    c.bytes += bytes;
-                }
-            }
-            // A concurrent build that finished first wins, so every tile shares one map.
-            slot.get().map_or(maps, |e| e.maps.clone())
-        }
+        None => build_fx_slot_maps(layer, region, key, cx, &slot),
     };
     // Evict the oldest entries over budget (never the one just used).
-    let mut c = fx_cache().lock().unwrap_or_else(|e| e.into_inner());
-    let budget = effect_cache_budget();
-    while c.bytes > budget && c.order.len() > 1 {
-        let Some(old) = c.order.pop_front() else { break };
-        if old == key {
-            c.order.push_back(old);
-            continue;
-        }
-        if let Some(s) = c.map.remove(&old) {
-            c.bytes = c.bytes.saturating_sub(s.get().map_or(0, |e| e.bytes));
-        }
-    }
+    evict_fx_cache_over_budget(key);
     maps
 }
 

@@ -16,7 +16,7 @@ fn harness(tool: Tool) -> Harness<'static, PhotocraftApp> {
     app.sync_views();
     app.ui.extras.rulers = false;
     app.ui.tool = tool;
-    let mut h = Harness::builder().with_size(vec2(1000.0, 700.0)).build_ui_state(
+    let mut h = Harness::builder().allow_missing_glyphs().with_size(vec2(1000.0, 700.0)).build_ui_state(
         |ui, app: &mut PhotocraftApp| {
             let ctx = ui.ctx().clone();
             if !ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
