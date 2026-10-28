@@ -62,6 +62,9 @@ pub fn start() {
         let force_cpu = q.contains("cpu");
         // The A/B oracle boot: deterministic chrome + a seeded 1920×1080 document (REV7).
         let oracle = q.contains("oracle=1");
+        // The mirror boot (REV8): the DEFAULT state (Properties card open, Brush, fit
+        // zoom) made deterministic — for the app-mirror oracle profile + owner captures.
+        let mirror = q.contains("mirror=1");
         let mut options = eframe::WebOptions::default();
         photocraft_ui_egui::gpu_canvas::use_adapter_limits(&mut options.wgpu_options.wgpu_setup);
         if q.contains("webgl")
@@ -103,6 +106,9 @@ pub fn start() {
                     }
                     if oracle {
                         app.oracle_seed();
+                    }
+                    if mirror {
+                        app.mirror_seed();
                     }
                     listen_pen(&pen_target, app.stylus.feed.clone());
                     // No forced theme: setup_context already applied ModernCanvas (the

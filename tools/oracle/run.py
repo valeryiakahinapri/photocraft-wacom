@@ -35,6 +35,15 @@ OUT = Path("/home/z/my-project/download/oracle")
 VIEWPORT = (1440, 900)
 SETTLE_MS = 900
 
+# REV8: --profile mirror compares the app's DEFAULT boot (?mirror=1: Properties card
+# open, Brush, fit zoom) against the MIRROR STORY (MirrorClean export, annotakit layer
+# disabled) — the full-chrome comparison the default profile can't do (it closes the
+# Properties card to compare the bare skeleton).
+MIRROR_APP_URL = f"{HUB}/photocraft/?mirror=1&webgl"
+MIRROR_STORY_URL = f"{HUB}/storybook/iframe.html?id=review-photocraft--mirror-clean&viewMode=story"
+MIRROR_FONT = "12.5px InterM"
+MIRROR_SENTINEL = '[data-mirror="title-bar"]'  # story-side readiness + region markers
+
 # The measured sheet (browser-rasterized; R1-0 law). Keep in lockstep with theme.rs's
 # ModernCanvas block + the token test.
 TOKENS = {
@@ -61,6 +70,10 @@ REGION_FILL = {
     "rail": "surface",
     "panel-column": "surface",
     "status-pill": "pill",
+    # mirror-profile regions (flat on the island surface)
+    "properties-card": "surface",
+    "swatches-card": "surface",
+    "layers-card": "surface",
 }
 
 
@@ -80,8 +93,16 @@ def eval_js(js: str) -> str:
     return line
 
 
-def boot_and_capture(url: str, is_app: bool) -> Image.Image:
+def boot_and_capture(url: str, is_app: bool, font: str = "12.5px Geist", sentinel: str | None = None) -> Image.Image:
     ab("open", url)
+    if sentinel is not None:
+        probe = f"Boolean(document.querySelector('{sentinel}'))"
+        for _ in range(40):
+            if "true" in eval_js(probe):
+                break
+            time.sleep(0.3)
+        else:
+            raise RuntimeError(f"SENTINEL_TIMEOUT: {sentinel} never appeared")
     if is_app:
         for _ in range(60):
             if "true" in eval_js("document.getElementById('photocraft_loading') === null"):
@@ -94,8 +115,8 @@ def boot_and_capture(url: str, is_app: bool) -> Image.Image:
             if "loaded" in eval_js("document.fonts.status"):
                 break
             time.sleep(0.3)
-        if "false" in eval_js("document.fonts.check('12.5px Geist')"):
-            raise RuntimeError("FONT_MISSING: Geist did not load")
+        if "false" in eval_js(f"document.fonts.check('{font}')"):
+            raise RuntimeError(f"FONT_MISSING: {font} did not load")
     dpr = eval_js("String(devicePixelRatio)")
     if "1" not in dpr:
         raise RuntimeError(f"DPR_MISMATCH: devicePixelRatio={dpr}")
@@ -287,13 +308,21 @@ def l4_masked(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
     findings = []
     mask = np.ones(app.shape[:2], dtype=bool)  # True = compare
 
-    for name in ("options-bar", "toolbar", "right-island", "status-pill", "tab-strip", "title-bar"):
+    for name in ("options-bar", "toolbar", "right-island", "status-pill", "tab-strip", "title-bar",
+                 "swatches-card", "layers-card", "properties-card"):
         if name not in regions:
             continue
         x, y, w, h = regions[name]
         x0, y0, x1, y1 = x + 8, y + 8, x + w - 8, y + h - 8
         if x1 > x0 and y1 > y0:
             mask[y0:y1, x0:x1] = False
+    # the floating Properties card's height is content-driven on both sides; mask its
+    # whole x-strip down to the workspace bottom so a taller/shorter card bottom never
+    # dangles into the comparison (its left/right/top edges still get compared).
+    if "properties-card" in regions and "workspace" in regions:
+        x, y, w, h = regions["properties-card"]
+        wx, wy, ww, wh = regions["workspace"]
+        mask[y + 8 : wy + wh, x : x + w] = False
     if "workspace" in regions:
         x, y, w, h = regions["workspace"]
         ring = 12
@@ -344,23 +373,29 @@ def l4_masked(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     state = sys.argv[sys.argv.index("--state") + 1] if "--state" in sys.argv else "default"
-    print(f"[oracle] state={state} — session {SESSION}")
+    profile = sys.argv[sys.argv.index("--profile") + 1] if "--profile" in sys.argv else "default"
+    prefix = "oracle-mirror" if profile == "mirror" else "oracle"
+    app_url = MIRROR_APP_URL if profile == "mirror" else APP_URL
+    mck_url = MIRROR_STORY_URL if profile == "mirror" else MOCKUP_URL
+    font = MIRROR_FONT if profile == "mirror" else "12.5px Geist"
+    sentinel = MIRROR_SENTINEL if profile == "mirror" else None
+    print(f"[oracle] state={state} profile={profile} — session {SESSION}")
 
     ab("close", check=False)
     ab("set", "viewport", str(VIEWPORT[0]), str(VIEWPORT[1]))
 
-    print("[oracle] rendering mockup /oracle …")
-    mck = boot_and_capture(MOCKUP_URL, is_app=False)
-    mck.save(OUT / "oracle-mockup.png")
+    print(f"[oracle] rendering reference side: {mck_url} …")
+    mck = boot_and_capture(mck_url, is_app=False, font=font, sentinel=sentinel)
+    mck.save(OUT / f"{prefix}-mockup.png")
     regions = extract_regions()
     print(f"[oracle] regions: {sorted(regions)}")
 
-    print("[oracle] rendering app ?oracle=1 …")
+    print(f"[oracle] rendering app side: {app_url} …")
     ab("open", HUB + "/")
     time.sleep(0.6)
     ab("storage", "local", "remove", "photocraft.preferences")  # B1: targeted — never touch annotakit threads
-    app = boot_and_capture(APP_URL, is_app=True)
-    app.save(OUT / "oracle-app.png")
+    app = boot_and_capture(app_url, is_app=True)
+    app.save(OUT / f"{prefix}-app.png")
 
     a, m = rgb(app), rgb(mck)
     findings = []
@@ -372,13 +407,13 @@ def main() -> int:
     side = Image.new("RGB", (VIEWPORT[0] * 2 + 8, VIEWPORT[1]), (24, 24, 24))
     side.paste(mck, (0, 0))
     side.paste(app, (VIEWPORT[0] + 8, 0))
-    side.save(OUT / "oracle-side-by-side.png")
+    side.save(OUT / f"{prefix}-side-by-side.png")
 
-    report = {"state": state, "viewport": VIEWPORT,
+    report = {"state": state, "profile": profile, "viewport": VIEWPORT,
               "tokens": {k: "#%02X%02X%02X" % v for k, v in TOKENS.items()},
               "regions": regions, "findings": findings,
               "pass": bool(all(f["ok"] for f in findings))}
-    (OUT / "oracle-report.json").write_text(json.dumps(report, indent=1))
+    (OUT / f"{prefix}-report.json").write_text(json.dumps(report, indent=1))
     fails = [f for f in findings if not f["ok"]]
     print(f"[oracle] {'PASS' if report['pass'] else 'FAIL'} — {len(fails)} failing of {len(findings)}")
     for f in fails[:24]:

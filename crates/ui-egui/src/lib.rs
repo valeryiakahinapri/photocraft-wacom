@@ -1062,6 +1062,23 @@ impl PhotocraftApp {
     /// against the HTML mockup — a fixed 1920×1080 document, the default (expanded) toolbar,
     /// and no dialogs. Called by the web shell's `?oracle=1` boot after the app (and its
     /// prefs) exist; `file.new` with explicit dimensions bypasses the New Document dialog.
+    /// The MIRROR state (REV8): the app's DEFAULT boot, made deterministic — same doc as
+    /// oracle_seed but everything else default-TRUE: the floating Properties card OPEN
+    /// (it IS part of the current UI), Brush tool, expanded toolbar. Zoom stays fit —
+    /// `fit_pending` resolves on the first canvas frame (canvas.rs), so no hardcoded
+    /// zoom/center here. This is the state the HTML mirror story reproduces and what the
+    /// owner pins against.
+    pub fn mirror_seed(&mut self) {
+        self.ui.panels.toolbar_double = true;
+        self.ui.panels.properties = true;
+        let _ = self.run("file.new", serde_json::json!({ "width": 1920, "height": 1080 }));
+        if let Some(i) = self.session.active_index() {
+            self.ui.views[i].zoom_animating = false;
+            self.ui.views[i].zoom_anchor = None;
+            self.ui.views[i].fit_pending = true;
+        }
+    }
+
     pub fn oracle_seed(&mut self) {
         self.ui.panels.toolbar_double = true;
         // The floating Properties card is a deliberate shell deviation (mockup docks it) —
