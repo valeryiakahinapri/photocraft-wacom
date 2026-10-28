@@ -15,20 +15,31 @@ pub(crate) fn chrome_panel_radius(t: &Tokens) -> CornerRadius {
     CornerRadius::same(if t.bevel { 0 } else { t.radius_sm.min(5.0).round() as u8 })
 }
 
-/// Paint a modern-canvas island (REV6): soft drop shadow, `card` fill, hairline inset
-/// stroke — the mockup's floating-surface look, painted behind whatever the body lays
-/// out next. Returns the painted rect.
+/// Paint a modern-canvas island: the mockup's 3-part edge stack (wide ambient shadow
+/// with emulated negative spread, tight contact line, 1px lit top edge) + `card` fill,
+/// painted behind whatever the body lays out next. Returns the painted rect.
 pub(crate) fn paint_island(ui: &mut egui::Ui, t: &Tokens) -> egui::Rect {
-    paint_island_rect(ui.painter(), t, ui.max_rect(), CornerRadius::same(t.radius_island.round() as u8), t.card, None)
+    paint_island_rect(ui.painter(), t, ui.max_rect(), CornerRadius::same(t.radius_island.round() as u8), t.card, None, true)
 }
 
 /// [`paint_island`] for callers that own the rect — the right side's column and rail
 /// paint one island as two segments with asymmetric corners meeting at a flush seam.
 ///
-/// REV7 bezel-free law: no segment stroke. `shadow_clip` clips the shadow shape to a
-/// half-plane at the shared panel boundary so two abutting segments paint the island's
-/// shadow exactly once (no bleed across the seam, no doubled top/bottom edges); `None`
-/// paints the whole shadow (single islands, or the rail once it folds away detached).
+/// REV8 Phase A (the mockup's --shadow-island, styles.css):
+///   inset 0 1px 0 0 white/4%   → 1px lit top edge, corner arcs included
+///   0 10px 30px -14px black/55% → wide ambient; epaint's spread is u8 (no negatives)
+///                                  so the caster is pre-shrunk by 14px instead
+///   0 1px 3px black/30%        → tight contact line under the island
+/// The blur is epaint's linear sRGBA feather (not a Gaussian) — the ink integral
+/// matches the CSS; the tessellator caps blur at the caster's smallest side, so short
+/// segments (options bar, rail) feather tighter (accepted; oracle-invisible).
+///
+/// `shadow_clip` clips BOTH shadow shapes to a half-plane at the shared panel boundary
+/// so two abutting segments paint the island's shadow exactly once; `None` paints the
+/// whole shadow. `lit == false` skips the stack AND the highlight entirely — the
+/// workspace well is the one unlit island (the mockup's `main` has no shadow class:
+/// the shade step IS its boundary; a shadow there merges page+workspace into one dark
+/// mass — the REV8 contrast bug).
 pub(crate) fn paint_island_rect(
     p: &egui::Painter,
     t: &Tokens,
@@ -36,13 +47,41 @@ pub(crate) fn paint_island_rect(
     radius: CornerRadius,
     fill: Color32,
     shadow_clip: Option<egui::Rect>,
+    lit: bool,
 ) -> egui::Rect {
-    let shadow = egui::Shadow { offset: [0, 4], blur: 18, spread: 0, color: t.shadow };
-    match shadow_clip {
-        Some(clip) => p.with_clip_rect(clip.intersect(p.clip_rect())).add(shadow.as_shape(rect, radius)),
-        None => p.add(shadow.as_shape(rect, radius)),
+    if !lit {
+        p.rect_filled(rect, radius, fill);
+        return rect;
+    }
+    let add_shadow = |shape: egui::Shape| match shadow_clip {
+        Some(clip) => p.with_clip_rect(clip.intersect(p.clip_rect())).add(shape),
+        None => p.add(shape),
     };
+    // ambient: 0 10px 30px -14px black/55% — negative spread emulated via shrink
+    let ambient = egui::Shadow { offset: [0, 10], blur: 30, spread: 0, color: t.shadow };
+    add_shadow(egui::Shape::Rect(ambient.as_shape(rect.shrink(14.0), radius - 14u8)));
+    // contact: 0 1px 3px black/30%
+    let contact = egui::Shadow { offset: [0, 1], blur: 3, spread: 0, color: Color32::from_black_alpha(77) };
+    add_shadow(egui::Shape::Rect(contact.as_shape(rect, radius)));
     p.rect_filled(rect, radius, fill);
+    // 1px white-4% top highlight — stroke pulled 0.5px inside so its outer half sits on
+    // the fill's AA edge (never in the corner cut area), arcs following the radius.
+    let r = radius.nw.min(radius.ne) as f32;
+    let y = rect.top() + 0.5;
+    let mut pts = vec![egui::pos2(rect.left() + r, y)];
+    for (cx, a0, a1) in
+        [(rect.left() + r - 0.5, 180.0f32, 270.0), (rect.right() - r + 0.5, 270.0, 360.0)]
+    {
+        let cy = rect.top() + r - 0.5;
+        for i in 0..=6 {
+            let a = egui::remap(i as f32 / 6.0, 0.0..=1.0, a0..=a1).to_radians();
+            pts.push(egui::pos2(cx + (r - 0.5) * a.cos(), cy + (r - 0.5) * a.sin()));
+        }
+        if a0 == 180.0 {
+            pts.push(egui::pos2(rect.right() - r, y));
+        }
+    }
+    p.add(egui::Shape::line(pts, egui::Stroke::new(1.0, Color32::from_white_alpha(10))));
     rect
 }
 
@@ -2165,7 +2204,7 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, expanded: &mut bool, 
                 } else {
                     egui::Rect::from_min_max(pos2(r.left(), r.top() - 100.0), pos2(r.right() + 100.0, r.bottom() + 100.0))
                 };
-                paint_island_rect(ui.painter(), &t, r, segment_radius, t.card, Some(clip));
+                paint_island_rect(ui.painter(), &t, r, segment_radius, t.card, Some(clip), true);
                 egui::Frame::NONE.inner_margin(egui::Margin::same(margin)).show(ui, |ui| {
                     // Groups keep their heights whatever they show (#88): see `dock`.
                     crate::dock::show(app, ui, &shown, dock_body);

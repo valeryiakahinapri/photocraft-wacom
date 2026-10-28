@@ -379,15 +379,15 @@ impl Tokens {
             ThemeKind::ModernCanvas => Tokens {
                 kind,
                 chrome: Color32::from_rgb(0x07, 0x08, 0x0A),
-                canvas: Color32::from_rgb(0x04, 0x04, 0x05),
-                canvas_dot: Color32::from_rgb(0x0A, 0x0A, 0x0B),
-                dock: Color32::from_rgb(0x12, 0x14, 0x16),
-                card: Color32::from_rgb(0x12, 0x14, 0x16),
+                canvas: Color32::from_rgb(0x02, 0x02, 0x03),
+                canvas_dot: Color32::from_rgb(0x07, 0x07, 0x08),
+                dock: Color32::from_rgb(0x16, 0x17, 0x19),
+                card: Color32::from_rgb(0x16, 0x17, 0x19),
                 card_border: Color32::TRANSPARENT,
-                field: Color32::from_rgb(0x27, 0x29, 0x2B),
-                field_border: Color32::from_rgb(0x1E, 0x20, 0x22),
-                hover: Color32::from_rgb(0x1F, 0x21, 0x23),
-                pressed: Color32::from_rgb(0x29, 0x2B, 0x2F),
+                field: Color32::from_rgb(0x2B, 0x2B, 0x2D),
+                field_border: Color32::from_rgb(0x21, 0x22, 0x24),
+                hover: Color32::from_rgb(0x22, 0x24, 0x27),
+                pressed: Color32::from_rgb(0x2D, 0x2F, 0x33),
                 text: Color32::from_rgb(0xE9, 0xEB, 0xEE),
                 text_dim: Color32::from_rgb(0x95, 0x98, 0x9D),
                 text_faint: Color32::from_rgb(0x61, 0x63, 0x68),
@@ -396,7 +396,7 @@ impl Tokens {
                 accent_soft: Color32::from_rgba_unmultiplied(0x3B, 0x9C, 0xF6, 38),
                 accent_border: Color32::from_rgba_unmultiplied(0x3B, 0x9C, 0xF6, 128),
                 accent_text: Color32::from_rgb(0xFC, 0xFC, 0xFC),
-                separator: Color32::from_rgb(0x20, 0x22, 0x24),
+                separator: Color32::from_rgb(0x23, 0x24, 0x26),
                 shadow: Color32::from_black_alpha(140),
                 primary_bg: Color32::from_rgb(0x3B, 0x9C, 0xF6),
                 primary_text: Color32::from_rgb(0xFC, 0xFC, 0xFC),
@@ -409,22 +409,22 @@ impl Tokens {
                 pro: false,
                 round_chips: false,
                 tab_strip: Color32::TRANSPARENT,
-                row_selected: Color32::from_rgb(0x18, 0x28, 0x37),
-                histogram_bg: Color32::from_rgb(0x04, 0x04, 0x05),
+                row_selected: Color32::from_rgb(0x1B, 0x2A, 0x3A),
+                histogram_bg: Color32::from_rgb(0x02, 0x02, 0x03),
                 histogram_level: 225,
                 caption_close: Color32::from_rgb(196, 43, 28),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
                 page: Color32::from_rgb(0x07, 0x08, 0x0A),
-                popover: Color32::from_rgb(0x1B, 0x1D, 0x20),
+                popover: Color32::from_rgb(0x1F, 0x21, 0x23),
                 islands: true,
-                hairline: Color32::from_rgb(0x1A, 0x1C, 0x1E),
-                workspace: Color32::from_rgb(0x04, 0x04, 0x05),
+                hairline: Color32::from_rgb(0x1E, 0x1F, 0x21),
+                workspace: Color32::from_rgb(0x02, 0x02, 0x03),
                 radius_island: 12.0,
                 gradient_top: Color32::from_rgb(0x49, 0xA9, 0xFF),
                 gradient_bottom: Color32::from_rgb(0x2A, 0x80, 0xE2),
-                pill_fill: Color32::from_rgb(0x0E, 0x0F, 0x10),
-                track_fill: Color32::from_rgb(0x0D, 0x0E, 0x10),
+                pill_fill: Color32::from_rgb(0x0F, 0x10, 0x12),
+                track_fill: Color32::from_rgb(0x0F, 0x0F, 0x11),
             },
             ThemeKind::Studio => Tokens {
                 kind,
@@ -1816,25 +1816,26 @@ mod modern_canvas_tests {
         // renderer, so its output is the sheet — see the design doc's R1-0 law).
         let t = Tokens::for_kind(ThemeKind::ModernCanvas);
         assert_eq!(t.page, Color32::from_rgb(0x07, 0x08, 0x0A), "page background");
-        assert_eq!(t.workspace, Color32::from_rgb(0x04, 0x04, 0x05), "workspace");
+        assert_eq!(t.workspace, Color32::from_rgb(0x02, 0x02, 0x03), "workspace");
         assert_eq!(t.canvas, t.workspace, "the pasteboard is the workspace shade");
-        assert_eq!(t.card, Color32::from_rgb(0x12, 0x14, 0x16), "island surface");
-        assert_eq!(t.hover, Color32::from_rgb(0x1F, 0x21, 0x23), "surface-2");
-        assert_eq!(t.pressed, Color32::from_rgb(0x29, 0x2B, 0x2F), "surface-3");
-        assert_eq!(t.popover, Color32::from_rgb(0x1B, 0x1D, 0x20), "flyout");
+        assert_eq!(t.card, Color32::from_rgb(0x16, 0x17, 0x19), "island surface");
+        assert_eq!(t.dock, t.card, "dock follows the island surface");
+        assert_eq!(t.hover, Color32::from_rgb(0x22, 0x24, 0x27), "surface-2");
+        assert_eq!(t.pressed, Color32::from_rgb(0x2D, 0x2F, 0x33), "surface-3");
+        assert_eq!(t.popover, Color32::from_rgb(0x1F, 0x21, 0x23), "flyout");
         assert_eq!(t.text, Color32::from_rgb(0xE9, 0xEB, 0xEE), "foreground");
         assert_eq!(t.text_dim, Color32::from_rgb(0x95, 0x98, 0x9D), "muted foreground");
         assert_eq!(t.accent, Color32::from_rgb(0x3B, 0x9C, 0xF6), "primary");
         assert_eq!(t.primary_bg, t.accent, "primary buttons use the accent, not Studio's white");
         assert_eq!(t.primary_text, Color32::from_rgb(0xFC, 0xFC, 0xFC));
-        assert_eq!(t.separator, Color32::from_rgb(0x20, 0x22, 0x24), "6% white separators");
-        assert_eq!(t.hairline, Color32::from_rgb(0x1A, 0x1C, 0x1E), "3.5% white hairline");
-        assert_eq!(t.field, Color32::from_rgb(0x27, 0x29, 0x2B), "9% white input");
-        assert_eq!(t.field_border, Color32::from_rgb(0x1E, 0x20, 0x22), "5% white border");
-        assert_eq!(t.canvas_dot, Color32::from_rgb(0x0A, 0x0A, 0x0B), "2.5% white dots");
-        assert_eq!(t.row_selected, Color32::from_rgb(0x18, 0x28, 0x37), "primary 15% over surface");
-        assert_eq!(t.pill_fill, Color32::from_rgb(0x0E, 0x0F, 0x10), "surface/70 over workspace");
-        assert_eq!(t.track_fill, Color32::from_rgb(0x0D, 0x0E, 0x10), "background/50 over surface");
+        assert_eq!(t.separator, Color32::from_rgb(0x23, 0x24, 0x26), "6% white separators");
+        assert_eq!(t.hairline, Color32::from_rgb(0x1E, 0x1F, 0x21), "3.5% white hairline");
+        assert_eq!(t.field, Color32::from_rgb(0x2B, 0x2B, 0x2D), "9% white input");
+        assert_eq!(t.field_border, Color32::from_rgb(0x21, 0x22, 0x24), "5% white border");
+        assert_eq!(t.canvas_dot, Color32::from_rgb(0x07, 0x07, 0x08), "2.5% white dots");
+        assert_eq!(t.row_selected, Color32::from_rgb(0x1B, 0x2A, 0x3A), "primary 15% over surface");
+        assert_eq!(t.pill_fill, Color32::from_rgb(0x0F, 0x10, 0x12), "surface/70 over workspace");
+        assert_eq!(t.track_fill, Color32::from_rgb(0x0F, 0x0F, 0x11), "background/50 over surface");
         assert_eq!(t.gradient_top, Color32::from_rgb(0x49, 0xA9, 0xFF), "gradient top");
         assert_eq!(t.gradient_bottom, Color32::from_rgb(0x2A, 0x80, 0xE2), "gradient bottom");
         assert_eq!((t.radius_sm, t.radius, t.radius_lg, t.radius_island), (6.0, 7.0, 9.0, 12.0), "the radius ladder");

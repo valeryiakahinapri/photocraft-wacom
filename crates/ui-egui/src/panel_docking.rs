@@ -428,7 +428,7 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
             } else {
                 egui::Rect::from_min_max(pos2(r.left(), r.top() - 100.0), pos2(r.right() + 100.0, r.bottom() + 100.0))
             };
-            crate::panels::paint_island_rect(ui.painter(), &t, r, egui::CornerRadius { nw: 0, ne: rr, sw: 0, se: rr }, t.card, Some(clip));
+            crate::panels::paint_island_rect(ui.painter(), &t, r, egui::CornerRadius { nw: 0, ne: rr, sw: 0, se: rr }, t.card, Some(clip), true);
         }
         let mut content = |ui: &mut egui::Ui| {
             let mut style = craft_ui::docking::DockStyle::from_ui(ui);

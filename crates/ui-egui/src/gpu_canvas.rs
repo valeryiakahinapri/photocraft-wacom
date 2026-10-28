@@ -2462,7 +2462,9 @@ fn box_blur(p: vec2<f32>, lo: vec2<f32>, hi: vec2<f32>, sigma: f32) -> f32 {
 
 @vertex
 fn vs_shadow(@builtin(vertex_index) vi: u32) -> VOut {
-    let pad = 64.0 * view.a.w;
+    // REV8: pad widened 64 -> 128 — the new sigma-35 ambient reaches ~129px (the old
+    // sigma-16 shadow clipped at ~2.8% alpha; this keeps the tail free).
+    let pad = 128.0 * view.a.w;
     let c0 = doc_to_px(vec2(0.0, 0.0));
     let c1 = doc_to_px(vec2(view.b.z, 0.0));
     let c2 = doc_to_px(vec2(view.b.z, view.b.w));
@@ -2484,7 +2486,10 @@ fn fs_shadow(in: VOut) -> @location(0) vec4<f32> {
     let lo = doc_min();
     let hi = doc_max();
     let u = view.a.w;
-    let ambient = box_blur(p_align - vec2(0.0, 7.0 * u), lo, hi, 16.0 * u) * 0.40;
+    // REV8: the mockup's --shadow-canvas `0 24px 70px -24px black/80%` — sigma 35,
+    // offset 24, caster shrunk by 24 (shrink + offset puts the caster's top edge at
+    // the document's, exactly like CSS). Contact line unchanged (0 1px 3px-ish).
+    let ambient = box_blur(p_align - vec2(0.0, 24.0 * u), lo + vec2(24.0 * u), hi - vec2(24.0 * u), 35.0 * u) * 0.80;
     let contact = box_blur(p_align - vec2(0.0, 0.75 * u), lo, hi, 1.25 * u) * 0.30;
     let a = 1.0 - (1.0 - ambient) * (1.0 - contact);
     return vec4(0.0, 0.0, 0.0, a);

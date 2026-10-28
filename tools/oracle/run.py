@@ -39,14 +39,14 @@ SETTLE_MS = 900
 # ModernCanvas block + the token test.
 TOKENS = {
     "background": (0x07, 0x08, 0x0A),
-    "workspace": (0x04, 0x04, 0x05),
-    "surface": (0x12, 0x14, 0x16),
-    "surface2": (0x1F, 0x21, 0x23),
-    "surface3": (0x29, 0x2B, 0x2F),
-    "popover": (0x1B, 0x1D, 0x20),
+    "workspace": (0x02, 0x02, 0x03),
+    "surface": (0x16, 0x17, 0x19),
+    "surface2": (0x22, 0x24, 0x27),
+    "surface3": (0x2D, 0x2F, 0x33),
+    "popover": (0x1F, 0x21, 0x23),
     "primary": (0x3B, 0x9C, 0xF6),
-    "pill": (0x0E, 0x0F, 0x10),
-    "track": (0x0D, 0x0E, 0x10),
+    "pill": (0x0F, 0x10, 0x12),
+    "track": (0x0F, 0x0F, 0x11),
 }
 
 # Region -> expected fill token (the chrome skeleton; content is masked in L4).
@@ -358,7 +358,7 @@ def main() -> int:
     print("[oracle] rendering app ?oracle=1 …")
     ab("open", HUB + "/")
     time.sleep(0.6)
-    ab("storage", "local", "clear")
+    ab("storage", "local", "remove", "photocraft.preferences")  # B1: targeted — never touch annotakit threads
     app = boot_and_capture(APP_URL, is_app=True)
     app.save(OUT / "oracle-app.png")
 

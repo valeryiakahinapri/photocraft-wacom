@@ -2661,6 +2661,9 @@ fn documents(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             egui::CornerRadius::same(t.radius_island.round() as u8),
             t.workspace,
             None,
+            // REV8: the workspace well is UNLIT — the mockup's `main` carries no shadow
+            // (Shell.tsx); the shade step against the grey panels IS the boundary.
+            false,
         );
     }
     if !opening && app.ui.chrome.shows_home(n, app.session.prefs().general.auto_show_home_screen) {
@@ -3863,8 +3866,11 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 edge_rect = xf.doc_rect(area);
             }
             if !crate::theme::Tokens::get(&ctx).bevel && drop_shadow {
-                let shadow_rect = edge_rect;
-                painter.add(egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(150) }.as_shape(shadow_rect, 0));
+                // REV8: the mockup's --shadow-canvas 0 24px 70px -24px black/80% —
+                // the -24px spread is emulated by shrinking the caster; blur 112 keeps
+                // the ink integral of the CSS Gaussian (linear-feather compromise).
+                let shadow_rect = edge_rect.shrink(24.0);
+                painter.add(egui::Shadow { offset: [0, 24], blur: 112, spread: 0, color: Color32::from_black_alpha(203) }.as_shape(shadow_rect, 0));
             }
             let rotated = view.rotation.abs() > 0.05;
             let checkerboard = app.session.prefs().transparency_and_gamut.square().map(|square| (checker(app, &ctx), square));

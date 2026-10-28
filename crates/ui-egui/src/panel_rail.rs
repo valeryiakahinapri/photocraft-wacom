@@ -105,7 +105,7 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
             } else {
                 None
             };
-            crate::panels::paint_island_rect(ui.painter(), &t, r, radius, t.card, shadow_clip);
+            crate::panels::paint_island_rect(ui.painter(), &t, r, radius, t.card, shadow_clip, true);
         } else {
             // The separator is on the canvas side; the outer margin puts the island's edge 4px
             // further out than the content rect, so the line clears it by 2px at ±10.
@@ -225,11 +225,13 @@ pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let t = Tokens::get(ctx);
     let pro = t.pro;
     let width = if pro { 290.0 } else { 300.0 };
-    // REV7: the folded rail's flyout = the mockup's popover — radius 12, popover fill,
-    // hairline edge (bezel-free), the island shadow.
+    // REV8: the folded rail's flyout = the mockup's island-class flyout — radius 12,
+    // popover fill, NO border (bezel-free), the island shadow. Frame can express only
+    // one Shadow, so it carries the ambient; the 1px lit top edge is painted after the
+    // window below (inset semantics match the CSS `inset 0 1px 0 0 white/4%`).
     let frame = egui::Frame::NONE
         .fill(if t.islands { t.popover } else { t.card })
-        .stroke(if t.islands { egui::Stroke::new(1.0, t.hairline) } else { egui::Stroke::new(1.0, t.card_border) })
+        .stroke(if t.islands { egui::Stroke::NONE } else { egui::Stroke::new(1.0, t.card_border) })
         .corner_radius(if t.islands { egui::CornerRadius::same(t.radius_island as u8) } else { egui::CornerRadius::same(t.radius_lg as u8) })
         .shadow(egui::Shadow { offset: [0, 10], blur: 30, spread: 0, color: t.shadow })
         .inner_margin(egui::Margin::same(8));
@@ -255,7 +257,7 @@ pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         window = window.current_pos(egui::pos2(x, y));
     }
     let mut close = false;
-    window.show(ctx, |ui| {
+    let shown = window.show(ctx, |ui| {
         // Photoshop-style tab header with a close box (preset_panels::float_window's shape).
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(tl!(g.label())).color(t.text).size(12.0).strong());
@@ -307,9 +309,42 @@ pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if let Some(current) = app.ui.panel_peek.as_mut() {
         current.first = false;
     }
+    // REV8: the flyout's lit top edge — 1px white-4% inset band following the radius,
+    // painted over the window (inset shadow semantics = on top of the fill).
+    if t.islands && !close {
+        if let Some(inner) = &shown {
+            paint_peek_top_edge(ctx, inner.response.rect, t.radius_island as f32);
+        }
+    }
+
     if close {
         app.ui.panel_peek = None;
     }
+}
+
+
+/// REV8: the flyout's lit top edge — 1px white-4% inset band following the radius,
+/// painted on the window's own layer (inset shadow semantics = on top of the fill,
+/// but below any menu/popup that opens higher).
+pub(crate) fn paint_peek_top_edge(ctx: &egui::Context, rect: egui::Rect, radius_island: f32) {
+    let layer = egui::LayerId::new(egui::Order::Middle, egui::Id::new("peek-top-edge"));
+    let painter = ctx.layer_painter(layer);
+    let r = radius_island.min(rect.width() / 2.0).min(rect.height() / 2.0);
+    let y = rect.top() + 0.5;
+    let mut pts = vec![egui::pos2(rect.left() + r, y)];
+    for (cx, a0, a1) in
+        [(rect.left() + r - 0.5, 180.0f32, 270.0), (rect.right() - r + 0.5, 270.0, 360.0)]
+    {
+        let cy = rect.top() + r - 0.5;
+        for i in 0..=6 {
+            let a = egui::remap(i as f32 / 6.0, 0.0..=1.0, a0..=a1).to_radians();
+            pts.push(egui::pos2(cx + (r - 0.5) * a.cos(), cy + (r - 0.5) * a.sin()));
+        }
+        if a0 == 180.0 {
+            pts.push(egui::pos2(rect.right() - r, y));
+        }
+    }
+    painter.add(egui::Shape::line(pts, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(10))));
 }
 
 #[cfg(test)]

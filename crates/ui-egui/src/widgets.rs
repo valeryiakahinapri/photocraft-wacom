@@ -154,7 +154,7 @@ pub fn card_ex(
             let area = Rect::from_min_max(row.min, pos2((menu_rect.left() - 4.0).max(row.left()), row.bottom()));
             if t.islands {
                 // REV7: the Segmented track = the measured background/50-over-surface solid
-                // (#0D0E10), radius 9, NO ring (Shell.tsx:47 — the track is a plain well).
+                // (#0F0F11), radius 9, NO ring (Shell.tsx:47 — the track is a plain well).
                 let track = Rect::from_min_max(pos2(area.left(), area.top() - 3.0), pos2(area.right(), area.bottom() + 3.0));
                 ui.painter().rect_filled(track, CornerRadius::same(t.radius_lg as u8), t.track_fill);
             }
