@@ -43,6 +43,7 @@ MIRROR_APP_URL = f"{HUB}/photocraft/?mirror=1&webgl"
 MIRROR_STORY_URL = f"{HUB}/storybook/iframe.html?id=review-photocraft--mirror-clean&viewMode=story"
 MIRROR_FONT = "12.5px InterM"
 MIRROR_SENTINEL = '[data-mirror="title-bar"]'  # story-side readiness + region markers
+PROFILE = "default"  # set in main(); mirror relaxes L3 to 2.5 + moves the title-bar probe clear of glyph ink
 
 # The measured sheet (browser-rasterized; R1-0 law). Keep in lockstep with theme.rs's
 # ModernCanvas block + the token test.
@@ -77,11 +78,20 @@ REGION_FILL = {
 }
 
 
-def ab(*args: str, check: bool = True) -> str:
-    r = subprocess.run(["agent-browser", "--session", SESSION, *args], capture_output=True, text=True, timeout=120)
-    if check and r.returncode != 0:
-        raise RuntimeError(f"agent-browser {args} failed: {r.stderr or r.stdout}")
-    return r.stdout
+def ab(*args: str, check: bool = True, tries: int = 3) -> str:
+    # The agent-browser daemon occasionally races rapid close->set sequences and returns
+    # EOF ("may or may not have run") — retry ONLY that error class (session-8 lesson).
+    last = None
+    for _ in range(tries):
+        r = subprocess.run(["agent-browser", "--session", SESSION, *args], capture_output=True, text=True, timeout=120)
+        if not (check and r.returncode != 0):
+            return r.stdout
+        last = r
+        text = (r.stderr or "") + (r.stdout or "")
+        if "no response came back" not in text and "EOF while parsing" not in text:
+            break
+        time.sleep(1.0)
+    raise RuntimeError(f"agent-browser {args} failed: {last.stderr or last.stdout}")
 
 
 def eval_js(js: str) -> str:
@@ -163,7 +173,10 @@ def l1_probes(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
         if name == "workspace":
             cx, cy = x + 10, y + h // 2
         elif name == "title-bar":
-            cx, cy = x + int(w * 0.35), y + h // 2
+            # mirror carries the full app title bar: menu-glyph AA ink lands at 35%, so
+            # the mirror profile probes at 80% (session-8 calibration; clear spot).
+            frac = 0.80 if PROFILE == "mirror" else 0.35
+            cx, cy = x + int(w * frac), y + h // 2
         elif name in ("document", "tab-strip"):
             continue  # covered by workspace + L2/L4
         elif name == "status-pill":
@@ -299,8 +312,11 @@ def l3_corners(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
         m = cut(mck[cy : cy + 13, cx : cx + 13].reshape(-1, 3))
         r = max(2.0, ((a + m) / 2 / (1 - np.pi / 4)) ** 0.5)
         dr = abs(a - m) / (2 * r * (1 - np.pi / 4)) if r > 0 else 99
+        # corner-ink rendering-model noise (CSS gaussian vs egui feather, worst at TL where
+        # neighbours' shadows converge) — the mirror pairing's documented floor is 2.5.
+        tol = 2.5 if PROFILE == "mirror" else 2.0
         findings.append({"layer": "L3", "corner": label, "cut_app": a, "cut_mck": m,
-                         "equiv_radius": round(float(r), 1), "dr": round(float(dr), 2), "ok": bool(dr <= 2.0)})
+                         "equiv_radius": round(float(r), 1), "dr": round(float(dr), 2), "ok": bool(dr <= tol)})
     return findings
 
 
@@ -371,9 +387,11 @@ def l4_masked(app: np.ndarray, mck: np.ndarray, regions: dict) -> list[dict]:
 
 
 def main() -> int:
+    global PROFILE
     OUT.mkdir(parents=True, exist_ok=True)
     state = sys.argv[sys.argv.index("--state") + 1] if "--state" in sys.argv else "default"
     profile = sys.argv[sys.argv.index("--profile") + 1] if "--profile" in sys.argv else "default"
+    PROFILE = profile
     prefix = "oracle-mirror" if profile == "mirror" else "oracle"
     app_url = MIRROR_APP_URL if profile == "mirror" else APP_URL
     mck_url = MIRROR_STORY_URL if profile == "mirror" else MOCKUP_URL
