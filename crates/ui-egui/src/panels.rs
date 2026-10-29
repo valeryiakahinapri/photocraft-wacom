@@ -474,7 +474,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         };
                         let (cr, resp) = ui.allocate_exact_size(vec2(bx, bx), Sense::click());
                         icons::paint(ui, cr, if double { close } else { open }, 14.0, if resp.hovered() { t.text } else { t.text_faint });
-                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Toolbar")));
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Toolbar")));
                         if resp.clicked() {
                             app.ui.panels.toolbar_double = !double;
                         }

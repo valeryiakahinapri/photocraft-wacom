@@ -17,11 +17,13 @@ LOG=/home/z/trunk-bundle.log
 echo "[$(date '+%F %T')] trunk bundle start (lane=$LANE)"
 export PATH=/home/z/.cargo/bin:$PATH
 export CARGO_HOME=/home/z/.cargo RUSTUP_HOME=/home/z/.rustup
+# REV8 trap: the warm cache was built with these — without them a thin-LTO cold build eats 2G+ and dies.
+export CARGO_PROFILE_WASM_RELEASE_LTO=false CARGO_PROFILE_WASM_RELEASE_CODEGEN_UNITS=16
 export CARGO_TARGET_DIR="$LANE/target"
 unset NO_COLOR CLICOLOR CLICOLOR_FORCE TERM
 pkill -f "wasm-opt" 2>/dev/null || true
 cd "$LANE/apps/photocraft-web"
-trunk build --release --offline
+trunk build --release
 echo "[$(date '+%F %T')] trunk rc=$?"
 BG=$(ls "$LANE/dist/web/"photocraft-web-*_bg.wasm | head -1)
 RAW=$(stat -c %s "$BG")
