@@ -7,10 +7,11 @@ use crate::state::DialogKind;
 
 /// Shared gate for native menu clicks and control-channel `ui.menu.invoke`.
 /// Dialogs and unsaved-changes prompts block edits, but allow the four view-navigation
-/// commands also usable through shortcuts. Camera Raw blocks menu commands entirely, and a pending
-/// crop blocks the commands Photoshop greys during one (`crop_ui::blocks`).
+/// commands also usable through shortcuts. Camera Raw and the full-window workspaces
+/// (`distort_ui::modal_workspace`) block menu commands entirely, and a pending crop blocks the
+/// commands Photoshop greys during one (`crop_ui::blocks`).
 pub(crate) fn modal_allows(app: &PhotocraftApp, id: &str) -> bool {
-    if app.camera_raw.is_some() || crate::crop_ui::blocks(app, id) {
+    if app.camera_raw.is_some() || crate::distort_ui::modal_workspace(app).is_some() || crate::crop_ui::blocks(app, id) {
         return false;
     }
     (app.ui.dialogs.is_empty() && app.ui.layers_panel_dialog.is_none() && app.discard.is_none()) || crate::shortcuts::NAV_COMMANDS.contains(&id)
@@ -89,6 +90,9 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
     if let Some(tool) = crate::tool_shortcuts::tool(id) {
         crate::tool_memory::select(app, tool);
         return Ok(json!({"tool": tool}));
+    }
+    if id == "help.checkForUpdates" {
+        return crate::updates_ui::check(app, ctx, params);
     }
     if id == "ui.symmetryTransform" {
         return crate::symmetry_ui::begin(app).map(|_| Value::Null);
@@ -1109,7 +1113,13 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             items.insert(after + 1 + k, it);
         }
     }
-    // Help: the link items, a separator, then System Info and About.
+    // Keep the update command with the links, ahead of System Info and About.
+    if let Some(at) = items.iter().position(|i| i.id == "help.checkForUpdates") {
+        let update = items.remove(at);
+        let before = items.iter().position(|i| i.id == "help.systemInfo" || i.id == "help.about").unwrap_or(items.len());
+        items.insert(before, update);
+    }
+    // Help: the link items and update check, a separator, then System Info and About.
     if let Some(at) = items.iter().position(|i| i.id == "help.systemInfo" || i.id == "help.about") {
         items.insert(
             at,
