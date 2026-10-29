@@ -15,19 +15,73 @@ pub(crate) fn chrome_panel_radius(t: &Tokens) -> CornerRadius {
     CornerRadius::same(if t.bevel { 0 } else { t.radius_sm.min(5.0).round() as u8 })
 }
 
-/// Paint a modern-canvas island (REV6): soft drop shadow, `card` fill, hairline inset
-/// stroke — the mockup's floating-surface look, painted behind whatever the body lays
-/// out next. Returns the painted rect.
+/// Paint a modern-canvas island: the mockup's 3-part edge stack (wide ambient shadow
+/// with emulated negative spread, tight contact line, 1px lit top edge) + `card` fill,
+/// painted behind whatever the body lays out next. Returns the painted rect.
 pub(crate) fn paint_island(ui: &mut egui::Ui, t: &Tokens) -> egui::Rect {
-    paint_island_rect(ui.painter(), t, ui.max_rect(), CornerRadius::same(t.radius.round() as u8))
+    paint_island_rect(ui.painter(), t, ui.max_rect(), CornerRadius::same(t.radius_island.round() as u8), t.card, None, true)
 }
 
 /// [`paint_island`] for callers that own the rect — the right side's column and rail
-/// paint one island as two segments with asymmetric corners meeting at a square seam.
-pub(crate) fn paint_island_rect(p: &egui::Painter, t: &Tokens, rect: egui::Rect, radius: CornerRadius) -> egui::Rect {
-    p.add(egui::Shadow { offset: [0, 4], blur: 18, spread: 0, color: t.shadow }.as_shape(rect, radius));
-    p.rect_filled(rect, radius, t.card);
-    p.rect_stroke(rect, radius, egui::Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
+/// paint one island as two segments with asymmetric corners meeting at a flush seam.
+///
+/// REV8 Phase A (the mockup's --shadow-island, styles.css):
+///   inset 0 1px 0 0 white/4%   → 1px lit top edge, corner arcs included
+///   0 10px 30px -14px black/55% → wide ambient; epaint's spread is u8 (no negatives)
+///                                  so the caster is pre-shrunk by 14px instead
+///   0 1px 3px black/30%        → tight contact line under the island
+/// The blur is epaint's linear sRGBA feather (not a Gaussian) — the ink integral
+/// matches the CSS; the tessellator caps blur at the caster's smallest side, so short
+/// segments (options bar, rail) feather tighter (accepted; oracle-invisible).
+///
+/// `shadow_clip` clips BOTH shadow shapes to a half-plane at the shared panel boundary
+/// so two abutting segments paint the island's shadow exactly once; `None` paints the
+/// whole shadow. `lit == false` skips the stack AND the highlight entirely — the
+/// workspace well is the one unlit island (the mockup's `main` has no shadow class:
+/// the shade step IS its boundary; a shadow there merges page+workspace into one dark
+/// mass — the REV8 contrast bug).
+pub(crate) fn paint_island_rect(
+    p: &egui::Painter,
+    t: &Tokens,
+    rect: egui::Rect,
+    radius: CornerRadius,
+    fill: Color32,
+    shadow_clip: Option<egui::Rect>,
+    lit: bool,
+) -> egui::Rect {
+    if !lit {
+        p.rect_filled(rect, radius, fill);
+        return rect;
+    }
+    let add_shadow = |shape: egui::Shape| match shadow_clip {
+        Some(clip) => p.with_clip_rect(clip.intersect(p.clip_rect())).add(shape),
+        None => p.add(shape),
+    };
+    // ambient: 0 10px 30px -14px black/55% — negative spread emulated via shrink
+    let ambient = egui::Shadow { offset: [0, 10], blur: 30, spread: 0, color: t.shadow };
+    add_shadow(egui::Shape::Rect(ambient.as_shape(rect.shrink(14.0), radius - 14u8)));
+    // contact: 0 1px 3px black/30%
+    let contact = egui::Shadow { offset: [0, 1], blur: 3, spread: 0, color: Color32::from_black_alpha(77) };
+    add_shadow(egui::Shape::Rect(contact.as_shape(rect, radius)));
+    p.rect_filled(rect, radius, fill);
+    // 1px white-4% top highlight — stroke pulled 0.5px inside so its outer half sits on
+    // the fill's AA edge (never in the corner cut area), arcs following the radius.
+    let r = radius.nw.min(radius.ne) as f32;
+    let y = rect.top() + 0.5;
+    let mut pts = vec![egui::pos2(rect.left() + r, y)];
+    for (cx, a0, a1) in
+        [(rect.left() + r - 0.5, 180.0f32, 270.0), (rect.right() - r + 0.5, 270.0, 360.0)]
+    {
+        let cy = rect.top() + r - 0.5;
+        for i in 0..=6 {
+            let a = egui::remap(i as f32 / 6.0, 0.0..=1.0, a0..=a1).to_radians();
+            pts.push(egui::pos2(cx + (r - 0.5) * a.cos(), cy + (r - 0.5) * a.sin()));
+        }
+        if a0 == 180.0 {
+            pts.push(egui::pos2(rect.right() - r, y));
+        }
+    }
+    p.add(egui::Shape::line(pts, egui::Stroke::new(1.0, Color32::from_white_alpha(10))));
     rect
 }
 
@@ -126,20 +180,30 @@ fn tool_flyout_release(row: Rect, pointer: Option<Pos2>, released: bool, from_bu
 
 pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
-    let (w1, bx, m) = if t.pro { (40.0, 30.0, 5i8) } else { (50.0, 36.0, 7i8) };
+    let (w1, bx, m) = if t.pro { (40.0, 30.0, 5i8) } else if t.islands { (56.0, 32.0, 6i8) } else { (50.0, 36.0, 7i8) };
     let sections = visible_sections(&app.session.prefs().toolbar.hidden);
-    // Two columns when the header chevron asks for them; a column that doesn't fit scrolls.
+    // Two columns when the footer toggle asks for them; a column that doesn't fit scrolls.
     let double = app.ui.panels.toolbar_double;
-    let target_width = if double { w1 + bx + 2.0 } else { w1 };
+    // REV7 (R2-3): the island widths are the mockup's literals — 80 expanded (2×32 + 4 gap +
+    // 2×6 padding), 48 collapsed — animated between states; flat shells keep the old math.
+    let target_width = if t.islands {
+        if double { 80.0 } else { 48.0 }
+    } else if double {
+        w1 + bx + 2.0
+    } else {
+        w1
+    };
     let w = ui.ctx().animate_value_with_time(egui::Id::new("toolbar-width"), target_width, 0.22);
-    // The island shell (REV6): the strip paints the page gaps (8pt at the screen edge, 4pt
-    // toward the canvas); the body paints the island and keeps the old content padding.
+    // The island shell (REV7): the strip paints the page gaps (8pt at the screen edge, 4pt
+    // toward the canvas) around the animated island; the body paints the island with the
+    // mockup's 6pt content padding.
     let (ml, mr) = if crate::direction::is_rtl() { (4, 8) } else { (8, 4) };
     crate::direction::start_panel("toolbar")
         .resizable(false)
-        .exact_size(w + 8.0 + if t.islands { 12.0 } else { 0.0 })
+        .show_separator_line(!t.islands)
+        .exact_size(w + if t.islands { 12.0 } else { 8.0 })
         .frame(if t.islands {
-            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: ml, right: mr, top: 4, bottom: 4 })
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: ml, right: mr, top: 4, bottom: 8 })
         } else {
             egui::Frame::NONE.fill(t.canvas).corner_radius(chrome_panel_radius(&t)).inner_margin(egui::Margin::symmetric(m, 8))
         })
@@ -149,14 +213,18 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             let body = |ui: &mut egui::Ui| {
                 // Toolbar width is a user preference, not a Pro-only feature.
                 // Keep the same hit target in every theme (including RTL layouts).
-                let (cr, resp) = ui.allocate_exact_size(vec2(bx, 14.0), Sense::click());
-                let (shrink, grow) = if crate::direction::is_rtl() { ("chevrons-right", "chevrons-left") } else { ("chevrons-left", "chevrons-right") };
-                icons::paint(ui, cr, if double { shrink } else { grow }, 11.0, if resp.hovered() { t.text } else { t.text_faint });
-                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Toolbar")));
-                if resp.clicked() {
-                    app.ui.panels.toolbar_double = !double;
+                // REV7: under islands the toggle lives in the footer (the mockup's
+                // PanelLeftClose/PanelLeftOpen at the bottom), not at the top.
+                if !t.islands {
+                    let (cr, resp) = ui.allocate_exact_size(vec2(bx, 14.0), Sense::click());
+                    let (shrink, grow) = if crate::direction::is_rtl() { ("chevrons-right", "chevrons-left") } else { ("chevrons-left", "chevrons-right") };
+                    icons::paint(ui, cr, if double { shrink } else { grow }, 11.0, if resp.hovered() { t.text } else { t.text_faint });
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Toolbar")));
+                    if resp.clicked() {
+                        app.ui.panels.toolbar_double = !double;
+                    }
+                    ui.add_space(4.0);
                 }
-                ui.add_space(4.0);
                 // Subtle violet wash at the bottom of the toolbar.
                 let full = ui.max_rect();
                 if !t.bevel && !t.pro && !t.islands && t.dark() {
@@ -172,7 +240,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     mesh.add_triangle(0, 2, 3);
                     ui.painter().add(mesh);
                 }
-                ui.spacing_mut().item_spacing = vec2(2.0, 3.0);
+                ui.spacing_mut().item_spacing = if t.islands { vec2(4.0, 4.0) } else { vec2(2.0, 3.0) };
                 let flyout_id = egui::Id::new("tool-flyout");
                 let held_id = flyout_id.with("held");
                 if ui.input(|i| i.pointer.any_pressed()) {
@@ -187,7 +255,8 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     + chips_height(t.pro, t.round_chips, t.round_chips && double)
                     + 8.0
                     + if double { bx } else { bx * 2.0 + 3.0 }
-                    + 6.0;
+                    + 6.0
+                    + if t.islands { bx + 4.0 } else { 0.0 };
                 // As tall as the tools, so the colour chips sit right under them (Photoshop); a column
                 // taller than the window scrolls and keeps the chips at the bottom.
                 egui::ScrollArea::vertical()
@@ -369,8 +438,10 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                 });
                             }
                         }
-                        if icons::button(ui, "ellipsis", bx, false, tl!("Edit Toolbar…")).clicked() {
-                            let _ = crate::menus::invoke(app, &ctx, "edit.toolbar", json!({}));
+                        if !t.islands {
+                            if icons::button(ui, "ellipsis", bx, false, tl!("Edit Toolbar…")).clicked() {
+                                let _ = crate::menus::invoke(app, &ctx, "edit.toolbar", json!({}));
+                            }
                         }
                         reveal_focused_control(ui);
                     });
@@ -379,6 +450,37 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 // UI it is in, and the chips moved over by its width (#7316).
                 color_chips(app, ui, double, full.width());
                 ui.add_space(8.0);
+
+                // REV7 footer (islands): Edit Toolbar + the collapse toggle — the mockup's
+                // fixed footer pinned below the scrolling tools (`mt-1 w-full pt-1`).
+                if t.islands {
+                    // Expanded (80pt): the mockup's footer row — Edit Toolbar beside the
+                    // toggle. Collapsed (48pt) only the toggle fits: the ellipsis moves into
+                    // the expanded footer alone (the mockup's collapsed strip shows just the
+                    // chevron), so the island can never get stuck collapsed.
+                    let footer_layout = if double {
+                        egui::Layout::left_to_right(egui::Align::Min)
+                    } else {
+                        egui::Layout::top_down(egui::Align::Min)
+                    };
+                    ui.with_layout(footer_layout, |ui| {
+                        if double && icons::button(ui, "ellipsis", bx, false, tl!("Edit Toolbar…")).clicked() {
+                            let _ = crate::menus::invoke(app, &ctx, "edit.toolbar", json!({}));
+                        }
+                        let (close, open) = if crate::direction::is_rtl() {
+                            ("panel-right-close", "panel-right-open")
+                        } else {
+                            ("panel-left-close", "panel-left-open")
+                        };
+                        let (cr, resp) = ui.allocate_exact_size(vec2(bx, bx), Sense::click());
+                        icons::paint(ui, cr, if double { close } else { open }, 14.0, if resp.hovered() { t.text } else { t.text_faint });
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Toolbar")));
+                        if resp.clicked() {
+                            app.ui.panels.toolbar_double = !double;
+                        }
+                    });
+                    ui.add_space(4.0);
+                }
 
                 let layout = if double { egui::Layout::left_to_right(egui::Align::Min) } else { egui::Layout::top_down(egui::Align::Min) };
 
@@ -464,7 +566,9 @@ fn toolbar_icon_size(box_size: f32, pro: bool) -> f32 {
 /// pill — a 1×N gradient texture multiplied into a rounded rect — with the glyph in white and
 /// a short accent bar just outside the reading-start edge (Shell.tsx's `tool-active`).
 fn paint_tool_gradient(ui: &mut egui::Ui, t: &Tokens, r: Rect, icon: &str, glyph: f32) {
-    let (top, bottom) = (Color32::from_rgb(0x6A, 0xA9, 0xFF), Color32::from_rgb(0x52, 0x80, 0xE2));
+    // REV7: the measured mockup gradient endpoints live in the Tokens (round-1 audit caught
+    // the old hardcoded pair drifting from the sheet).
+    let (top, bottom) = (t.gradient_top, t.gradient_bottom);
     let steps = 32u32;
     let pixels = (0..steps)
         .map(|i| {
@@ -474,7 +578,7 @@ fn paint_tool_gradient(ui: &mut egui::Ui, t: &Tokens, r: Rect, icon: &str, glyph
         })
         .collect();
     let tex = ui.ctx().load_texture("pc-tool-gradient", egui::ColorImage::new([1, steps as usize], pixels), egui::TextureOptions::LINEAR);
-    let mut shape = egui::epaint::RectShape::filled(r, CornerRadius::same(t.radius_sm as u8), Color32::WHITE);
+    let mut shape = egui::epaint::RectShape::filled(r, CornerRadius::same(t.radius as u8), Color32::WHITE);
     shape.brush = Some(std::sync::Arc::new(egui::epaint::Brush { fill_texture_id: tex.id(), uv: Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)) }));
     ui.painter().add(shape);
     icons::paint(ui, r, icon, glyph, t.primary_text);
@@ -701,7 +805,8 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // so its strip only contributes the page gaps (8pt to the screen edges and below).
     let islands = t.islands;
     let bar = egui::Panel::top("title_bar")
-        .exact_size(crate::titlebar::bar_height(app, ui.ctx(), if t.pro { 32.0 } else { 38.0 }) + if islands { 12.0 } else { 0.0 })
+        .exact_size(crate::titlebar::bar_height(app, ui.ctx(), if t.pro { 32.0 } else if islands { 40.0 } else { 38.0 }) + if islands { 12.0 } else { 0.0 })
+        .show_separator_line(!islands)
         .frame(if islands {
             egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: left + 8, right: right + 8, top: 8, bottom: 4 })
         } else {
@@ -1062,7 +1167,8 @@ fn options_bar_height(pro: bool, narrow: bool) -> f32 {
     match (pro, narrow) {
         (true, false) => 36.0,
         (true, true) => 30.0,
-        (false, false) => 42.0,
+        // REV7: the mockup's h-11 island (44pt); the narrow fallback keeps its own height.
+        (false, false) => 44.0,
         (false, true) => 34.0,
     }
 }
@@ -1072,6 +1178,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let narrow = app.session.prefs().workspace.narrow_options_bar();
     egui::Panel::top("options_bar")
         .exact_size(options_bar_height(t.pro, narrow) + if t.islands { 8.0 } else { 0.0 })
+        .show_separator_line(!t.islands)
         .frame(if t.islands {
             // The island shell (REV6): the strip paints the page gaps; the body paints the
             // island and adds the content padding the old strip margin provided.
@@ -1777,23 +1884,9 @@ pub fn status_bar_heights(t: &Tokens) -> (f32, f32) {
     if t.pro { (24.0, 18.0) } else { (30.0, 22.0) }
 }
 
-pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    let t = Tokens::get(ui.ctx());
-    egui::Panel::bottom("status_bar")
-        .exact_size(status_bar_heights(&t).0 + if t.islands { 12.0 } else { 0.0 })
-        .frame(if t.islands {
-            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 8 })
-        } else {
-            egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(10, 0))
-        })
-        .show(ui, |ui| {
-            if t.islands {
-                paint_island(ui, &t);
-            }
-            let pad = if t.islands { egui::Margin::symmetric(10, 0) } else { egui::Margin::same(0) };
-            egui::Frame::NONE.inner_margin(pad).show(ui, |ui| {
-                let control_h = status_bar_heights(&t).1;
-                // Read from the right in a right-to-left UI, with the trailing group at the left.
+/// The status row both shells share: the bottom panel's body (non-island themes) and the
+/// floating pill inside the document workspace (REV7 islands — `canvas::paint_status_pill`).
+pub(crate) fn status_row(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens, control_h: f32) {
                 crate::direction::horizontal_centered(ui, |ui| {
                     if t.pro {
                         crate::chrome_ui::status_bar_pro(app, ui);
@@ -1847,6 +1940,26 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         crate::chrome_ui::gpu_memory_status(app, ui);
                     });
                 });
+}
+
+pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let t = Tokens::get(ui.ctx());
+    egui::Panel::bottom("status_bar")
+        .exact_size(status_bar_heights(&t).0 + if t.islands { 12.0 } else { 0.0 })
+        .show_separator_line(!t.islands)
+        .frame(if t.islands {
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 8 })
+        } else {
+            egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(10, 0))
+        })
+        .show(ui, |ui| {
+            if t.islands {
+                paint_island(ui, &t);
+            }
+            let pad = if t.islands { egui::Margin::symmetric(10, 0) } else { egui::Margin::same(0) };
+            egui::Frame::NONE.inner_margin(pad).show(ui, |ui| {
+                let control_h = status_bar_heights(&t).1;
+                status_row(app, ui, &t, control_h);
             });
         });
 }
@@ -1946,7 +2059,7 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, expanded: &mut bool, 
     let mut panel = crate::direction::end_panel("dock")
         .resizable(true)
         .default_size(if t.islands {
-            328.0
+            324.0
         } else if t.pro {
             290.0
         } else {
@@ -1963,9 +2076,11 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, expanded: &mut bool, 
     // rounded toward the screen edge — so the island's width animation is egui's own slide
     // clip. The customized dock (panel_docking) renders the same segment inside its own panel.
     let rtl = crate::direction::is_rtl();
-    let gaps = if rtl { egui::Margin { left: 8, right: 4, top: 4, bottom: 4 } } else { egui::Margin { left: 4, right: 8, top: 4, bottom: 4 } };
+    // REV7 one-surface: the column's seam-side margin is 0 so its segment abuts the rail's
+    // flush (no page gap between them — the mockup's right side is ONE island).
+    let gaps = if rtl { egui::Margin { left: 8, right: 0, top: 4, bottom: 8 } } else { egui::Margin { left: 0, right: 8, top: 4, bottom: 8 } };
     let segment_radius = if t.islands {
-        let r = t.radius.round() as u8;
+        let r = t.radius_island.round() as u8;
         if rtl { egui::CornerRadius { nw: r, ne: 0, sw: r, se: 0 } } else { egui::CornerRadius { nw: 0, ne: r, sw: 0, se: r } }
     } else {
         CornerRadius::ZERO
@@ -1978,13 +2093,16 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, expanded: &mut bool, 
         })
         .show_collapsible(ui, expanded, |ui| {
             if t.islands {
-                let mut r = ui.max_rect();
-                if rtl {
-                    r.max.x += 4.0
+                let r = ui.max_rect();
+                // Shadow half-plane at the seam: LTR layout is [central | rail | column |
+                // edge] — the column's LEFT edge is the seam, so its shadow keeps
+                // x >= r.left() (the rail owns the west half); RTL mirrors.
+                let clip = if rtl {
+                    egui::Rect::from_min_max(pos2(r.left() - 100.0, r.top() - 100.0), pos2(r.right(), r.bottom() + 100.0))
                 } else {
-                    r.min.x -= 4.0
-                }
-                paint_island_rect(ui.painter(), &t, r, segment_radius);
+                    egui::Rect::from_min_max(pos2(r.left(), r.top() - 100.0), pos2(r.right() + 100.0, r.bottom() + 100.0))
+                };
+                paint_island_rect(ui.painter(), &t, r, segment_radius, t.card, Some(clip), true);
                 egui::Frame::NONE.inner_margin(egui::Margin::same(margin)).show(ui, |ui| {
                     // Groups keep their heights whatever they show (#88): see `dock`.
                     crate::dock::show(app, ui, &shown, dock_body);
@@ -6621,8 +6739,12 @@ mod toolbar_tests {
             crate::theme::ThemeKind::AdwaitaDark,
             crate::theme::ThemeKind::SolarizedDark,
             crate::theme::ThemeKind::BreezeDark,
+            crate::theme::ThemeKind::ModernCanvas,
         ] {
-            let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            // REV7: the default flipped to expanded (islands) — this test drives the toggle
+            // from a known state, so start single explicitly.
+            app.ui.panels.toolbar_double = false;
             let mut h = egui_kittest::Harness::builder().with_size(vec2(800.0, 1400.0)).with_step_dt(1.0 / 60.0).build_ui_state(
                 |ui, app: &mut PhotocraftApp| {
                     if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
@@ -6669,6 +6791,40 @@ mod toolbar_tests {
             for label in ["Edit Toolbar…", "Edit in Quick Mask Mode  (Q)", "Change Screen Mode  (F)"] {
                 assert!(h.query_by_label(label).is_some(), "{kind:?}: no {label:?} button");
             }
+        }
+    }
+
+    // Regression test for #2241: Quick Mask and Screen Mode ignored the two-column toolbar and
+    // stayed stacked in one column; in two columns they sit side by side.
+    #[test]
+    fn quick_mask_and_screen_mode_follow_the_toolbar_columns() {
+        for theme in [crate::theme::ThemeKind::Pro, crate::theme::ThemeKind::Studio, crate::theme::ThemeKind::Classic] {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            // REV7: default flipped to expanded — drive the toggle from single explicitly.
+            app.ui.panels.toolbar_double = false;
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(800.0, 1400.0)).build_ui_state(
+                |ui, app: &mut PhotocraftApp| {
+                    if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                        toolbar(app, ui);
+                    }
+                },
+                app,
+            );
+            PhotocraftApp::setup_context(&h.ctx, theme);
+            h.run_steps(2);
+            let modes = |h: &egui_kittest::Harness<'_, PhotocraftApp>| {
+                (h.get_by_label("Edit in Quick Mask Mode  (Q)").rect(), h.get_by_label("Change Screen Mode  (F)").rect())
+            };
+            let (quick, screen) = modes(&h);
+            assert_eq!(quick.left(), screen.left(), "{theme:?}: one column stacks them");
+            assert!(screen.top() >= quick.bottom(), "{theme:?}: Screen Mode below Quick Mask: {quick:?} {screen:?}");
+
+            h.get_by_label("Toolbar").click();
+            h.run_steps(2);
+            assert!(h.state().ui.panels.toolbar_double, "{theme:?}");
+            let (quick, screen) = modes(&h);
+            assert_eq!(quick.top(), screen.top(), "{theme:?}: two columns put them on one row: {quick:?} {screen:?}");
+            assert!(screen.left() >= quick.right(), "{theme:?}: Screen Mode beside Quick Mask: {quick:?} {screen:?}");
         }
     }
 

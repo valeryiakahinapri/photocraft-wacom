@@ -1,4 +1,5 @@
 //! Application-owned panel IDs and commands around the shared docking layout.
+use egui::pos2;
 
 use crate::dock::Group;
 use craft_ui::docking::{Action, Floating, Layout, Node, Placement, Zone};
@@ -407,14 +408,20 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
     let mut commands = Vec::new();
     let mut targets = Vec::new();
     let mut draw = |ui: &mut egui::Ui| {
-        // The island shell (REV6): the customized column paints the same island segment the
-        // legacy dock paints (square seam side, rounded screen side), with the old 4pt
-        // content padding inside it.
+        // The island shell (REV7): the customized column paints the same island segment the
+        // legacy dock paints — flush at the seam (square west corners in LTR), rounded toward
+        // the screen edge — with the seam-side shadow clipped to its own half.
         if t.islands {
-            let mut r = ui.max_rect();
-            r.min.x -= 4.0;
-            let rr = t.radius.round() as u8;
-            crate::panels::paint_island_rect(ui.painter(), &t, r, egui::CornerRadius { nw: 0, ne: rr, sw: 0, se: rr });
+            let r = ui.max_rect();
+            let rr = t.radius_island.round() as u8;
+            // LTR layout [central | rail | column | edge]: the column's LEFT edge is the
+            // seam — keep the shadow at x >= r.left() (the rail owns the west half).
+            let clip = if crate::direction::is_rtl() {
+                egui::Rect::from_min_max(pos2(r.left() - 100.0, r.top() - 100.0), pos2(r.right(), r.bottom() + 100.0))
+            } else {
+                egui::Rect::from_min_max(pos2(r.left(), r.top() - 100.0), pos2(r.right() + 100.0, r.bottom() + 100.0))
+            };
+            crate::panels::paint_island_rect(ui.painter(), &t, r, egui::CornerRadius { nw: 0, ne: rr, sw: 0, se: rr }, t.card, Some(clip), true);
         }
         let mut content = |ui: &mut egui::Ui| {
             let mut style = craft_ui::docking::DockStyle::from_ui(ui);
@@ -436,7 +443,9 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
             style.active_background = t.card;
             style.text = t.text;
             style.inactive_text = t.text_dim;
-            style.border = egui::Stroke::new(1.0, t.card_border);
+            // REV7 bezel-free: pane borders become hairlines under islands (card_border is
+            // transparent there).
+            style.border = if t.islands { egui::Stroke::new(1.0, t.hairline) } else { egui::Stroke::new(1.0, t.card_border) };
             style.accent = t.accent;
             style.float_label = tl!("Float Panel").to_string();
             style.close_label = tl!("Close Panel").to_string();
@@ -472,7 +481,7 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
     let output = if layout.root.is_some() {
         let mut panel = egui::Panel::right("shared-panel-dock")
             .default_size(if t.islands {
-                328.0
+                324.0
             } else if t.pro {
                 290.0
             } else {
@@ -483,8 +492,9 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
             .show_separator_line(!t.islands)
             .frame(if t.islands {
                 // The island shell's customized column: same page gaps and column segment as
-                // the legacy dock (panels::dock_panels), so both paths draw one island.
-                egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 4, right: 8, top: 4, bottom: 4 })
+                // the legacy dock (panels::dock_panels) — flush at the seam (left 0) so both
+                // paths draw ONE island with the rail.
+                egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 0, right: 8, top: 4, bottom: 8 })
             } else {
                 egui::Frame::NONE.fill(t.canvas).corner_radius(crate::panels::chrome_panel_radius(&t)).inner_margin(egui::Margin::same(4))
             });

@@ -155,11 +155,17 @@ pub fn tool_icon(t: Tool) -> &'static str {
 /// Selected and hover fill shared by square icon buttons. Returns the icon tint.
 pub fn button_chrome(ui: &egui::Ui, rect: Rect, selected: bool, hovered: bool) -> Color32 {
     let t = Tokens::get(ui.ctx());
+    let r = if t.islands { t.radius as u8 } else { t.radius_sm as u8 };
     if selected {
-        ui.painter().rect_filled(rect, t.radius_sm, t.accent_soft);
-        ui.painter().rect_stroke(rect, t.radius_sm, egui::Stroke::new(1.0, t.accent_border), egui::StrokeKind::Inside);
+        // REV7 bezel-free: under islands the active tool carries the gradient pill
+        // (paint_tool_gradient); plain selected icon buttons fill surface-3, no ring.
+        let fill = if t.islands { t.pressed } else { t.accent_soft };
+        ui.painter().rect_filled(rect, r, fill);
+        if !t.islands {
+            ui.painter().rect_stroke(rect, t.radius_sm, egui::Stroke::new(1.0, t.accent_border), egui::StrokeKind::Inside);
+        }
     } else if hovered {
-        ui.painter().rect_filled(rect, t.radius_sm, t.hover);
+        ui.painter().rect_filled(rect, r, t.hover);
     }
     if selected {
         t.accent_text
@@ -203,11 +209,16 @@ pub fn button_with_icon_size_tip(ui: &mut egui::Ui, name: &str, box_size: f32, i
 pub fn rail_button(ui: &mut egui::Ui, name: &str, box_size: f32, on: bool, tooltip: &str) -> Response {
     let t = Tokens::get(ui.ctx());
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(box_size), Sense::click());
+    let r = if t.islands { t.radius as u8 } else { t.radius_sm as u8 };
     if on {
-        ui.painter().rect_filled(rect, t.radius_sm, t.card);
-        ui.painter().rect_stroke(rect, t.radius_sm, egui::Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
+        // REV7: the mockup's active rail icon = bg-surface-3 (the old card fill vanished
+        // into the card island the moment borders died).
+        ui.painter().rect_filled(rect, r, if t.islands { t.pressed } else { t.card });
+        if !t.islands {
+            ui.painter().rect_stroke(rect, t.radius_sm, egui::Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
+        }
     } else if resp.hovered() {
-        ui.painter().rect_filled(rect, t.radius_sm, t.hover);
+        ui.painter().rect_filled(rect, r, t.hover);
     }
     let tint = if on || resp.hovered() { t.text } else { t.text_faint };
     paint(ui, rect, name, (box_size * 0.52).round(), tint);

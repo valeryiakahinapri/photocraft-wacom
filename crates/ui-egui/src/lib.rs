@@ -1020,6 +1020,46 @@ pub struct PhotocraftApp {
 }
 
 impl PhotocraftApp {
+
+    /// The A/B oracle state (REV7): deterministic chrome for the pixel-exact comparison
+    /// against the HTML mockup — a fixed 1920×1080 document, the default (expanded) toolbar,
+    /// and no dialogs. Called by the web shell's `?oracle=1` boot after the app (and its
+    /// prefs) exist; `file.new` with explicit dimensions bypasses the New Document dialog.
+    /// The MIRROR state (REV8): the app's DEFAULT boot, made deterministic — same doc as
+    /// oracle_seed but everything else default-TRUE: the floating Properties card OPEN
+    /// (it IS part of the current UI), Brush tool, expanded toolbar. Zoom stays fit —
+    /// `fit_pending` resolves on the first canvas frame (canvas.rs), so no hardcoded
+    /// zoom/center here. This is the state the HTML mirror story reproduces and what the
+    /// owner pins against.
+    pub fn mirror_seed(&mut self) {
+        self.ui.panels.toolbar_double = true;
+        self.ui.panels.properties = true;
+        let _ = self.run("file.new", serde_json::json!({ "width": 1920, "height": 1080 }));
+        if let Some(i) = self.session.active_index() {
+            self.ui.views[i].zoom_animating = false;
+            self.ui.views[i].zoom_anchor = None;
+            self.ui.views[i].fit_pending = true;
+        }
+    }
+
+    pub fn oracle_seed(&mut self) {
+        self.ui.panels.toolbar_double = true;
+        // The floating Properties card is a deliberate shell deviation (mockup docks it) —
+        // the oracle state compares the chrome skeleton, so it must be closed.
+        self.ui.panels.properties = false;
+        let _ = self.run("file.new", serde_json::json!({ "width": 1920, "height": 1080 }));
+        // Zoom with slack on BOTH axes (a fit leaves one axis at zero slack, which shows a
+        // canvas scrollbar the mockup has no counterpart for): 45% of 1920x1080 sits well
+        // inside the workspace with margins on every side.
+        if let Some(i) = self.session.active_index() {
+            self.ui.views[i].zoom = 0.45;
+            self.ui.views[i].center = [960.0, 540.0];
+            self.ui.views[i].doc_size = [1920, 1080];
+            self.ui.views[i].zoom_animating = false;
+            self.ui.views[i].zoom_anchor = None;
+            self.ui.views[i].fit_pending = false;
+        }
+    }
     pub fn new(mut session: Session, mut services: Services) -> Self {
         session.updates.check = services.check_updates.take();
         let mut app = Self {
@@ -2460,7 +2500,10 @@ impl eframe::App for PhotocraftApp {
         if (chrome && self.ui.panels.options_bar) || tabbed_in {
             panels::options_bar(self, ui);
         }
-        if chrome && self.ui.panels.status_bar {
+        // REV7: under islands the status row floats inside the document workspace
+        // (canvas::paint_status_pill) — the bottom panel exists only for the flat shells.
+        let t_early = theme::Tokens::get(&ctx);
+        if chrome && self.ui.panels.status_bar && !t_early.islands {
             panels::status_bar(self, ui);
         }
         if (chrome && self.ui.panels.toolbar) || tabbed_in {
@@ -2469,13 +2512,13 @@ impl eframe::App for PhotocraftApp {
         if (chrome && (self.ui.panels.dock || self.ui.panels.rail)) || tabbed_in {
             panels::right_dock(self, ui);
         }
-        let t = theme::Tokens::get(&ctx);
+        let t = t_early;
         let backdrop = if chrome { prefs_ui::pasteboard_color(self).unwrap_or(t.canvas) } else { egui::Color32::BLACK };
-        // The island shell (REV6): the central strip paints the page and insets the document
-        // island by the 4pt halves of its gaps to the toolbar, dock and bars; the workspace
-        // inside the island keeps the pasteboard/canvas shade (canvas::documents).
+        // The island shell (REV7): the central strip paints the page and insets the document
+        // island by the gap halves to the toolbar and dock; the bottom gap is the full 8pt
+        // (the status island retired into the workspace's floating pill).
         let central = if t.islands && chrome {
-            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 4, right: 4, top: 4, bottom: 4 })
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 4, right: 4, top: 4, bottom: 8 })
         } else {
             egui::Frame::NONE.fill(backdrop)
         };

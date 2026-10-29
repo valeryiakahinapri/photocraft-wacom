@@ -128,13 +128,18 @@ pub fn card_ex(
         return pro_panel(ui, id, tabs, selected, collapsed, reorderable, body);
     }
     let m = body_margin(false);
-    // The island shell (REV6): the dock's cards lose their own borders — the mockup's column
-    // is one surface with hairline dividers — and the tab row sits in a Segmented track.
-    let frame = egui::Frame::NONE
-        .fill(t.card)
-        .stroke(if t.islands { Stroke::NONE } else { Stroke::new(1.0, t.card_border) })
-        .corner_radius(CornerRadius::same(t.radius as u8))
-        .inner_margin(egui::Margin { bottom: if collapsed { 6 } else { m.bottom }, ..m });
+    // The island shell (REV7): the dock's cards are FLUSH sections — no own fill, no radius,
+    // no borders — the island's surface carries them; sections separate via divide hairlines
+    // (the mockup's PanelCard is a plain section with a Segmented header).
+    let frame = if t.islands {
+        egui::Frame::NONE.inner_margin(egui::Margin { bottom: if collapsed { 6 } else { m.bottom }, ..m })
+    } else {
+        egui::Frame::NONE
+            .fill(t.card)
+            .stroke(Stroke::new(1.0, t.card_border))
+            .corner_radius(CornerRadius::same(t.radius as u8))
+            .inner_margin(egui::Margin { bottom: if collapsed { 6 } else { m.bottom }, ..m })
+    };
     let out = frame
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -148,13 +153,10 @@ pub fn card_ex(
             let menu = crate::icons::button(&mut ui.new_child(egui::UiBuilder::new().max_rect(menu_rect)), "ellipsis", 22.0, false, &tip);
             let area = Rect::from_min_max(row.min, pos2((menu_rect.left() - 4.0).max(row.left()), row.bottom()));
             if t.islands {
-                // The mockup's Segmented track the pills sit in: a page-tinted rounded well
-                // with an inset hairline (Shell.tsx's `bg-background/60` + hairline ring).
-                let mix = |a: u8, b: u8| (a as f32 * 0.6 + b as f32 * 0.4).round() as u8;
-                let track_fill = Color32::from_rgb(mix(t.page.r(), t.card.r()), mix(t.page.g(), t.card.g()), mix(t.page.b(), t.card.b()));
+                // REV7: the Segmented track = the measured background/50-over-surface solid
+                // (#0F0F11), radius 9, NO ring (Shell.tsx:47 — the track is a plain well).
                 let track = Rect::from_min_max(pos2(area.left(), area.top() - 3.0), pos2(area.right(), area.bottom() + 3.0));
-                ui.painter().rect_filled(track, CornerRadius::same(t.radius as u8), track_fill);
-                ui.painter().rect_stroke(track, CornerRadius::same(t.radius as u8), Stroke::new(1.0, t.card_border), StrokeKind::Inside);
+                ui.painter().rect_filled(track, CornerRadius::same(t.radius_lg as u8), t.track_fill);
             }
             let tabs_out = crate::tab_strip::pill_tabs(ui, ui.id().with((id, "tabs")), area, tabs, selected, reorderable);
             if !collapsed {

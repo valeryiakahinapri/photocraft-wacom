@@ -62,10 +62,13 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
     };
     let frame = if t.islands {
         let edge = edge as i8;
+        // REV7 one-surface: the rail's seam side (right in LTR) is the animated `edge`
+        // margin — flush with the column while it claims its half, opening to the screen-
+        // edge gap as it folds. The canvas side (left in LTR) keeps the 4pt half-gap.
         if rtl {
-            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 8, right: edge, top: 4, bottom: 4 })
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: edge, right: 4, top: 4, bottom: 8 })
         } else {
-            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 4, right: edge, top: 4, bottom: 4 })
+            egui::Frame::NONE.fill(t.page).inner_margin(egui::Margin { left: 4, right: edge, top: 4, bottom: 8 })
         }
     } else {
         egui::Frame::NONE
@@ -74,26 +77,35 @@ pub(crate) fn rail(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &Panels, custo
             .outer_margin(egui::Margin::same(4))
             .inner_margin(egui::Margin::symmetric(4, 8))
     };
-    let resp = crate::direction::end_panel("rail").resizable(false).exact_size(if t.islands { rw + 4.0 + edge } else { rw }).frame(frame).show(ui, |ui| {
+    let resp = crate::direction::end_panel("rail").resizable(false).show_separator_line(!t.islands).exact_size(if t.islands { rw + 4.0 + edge } else { rw }).frame(frame).show(ui, |ui| {
         if t.islands {
-            // The rail segment of the right-side island: rounded toward the canvas,
+            // The rail segment of the right-side island: rounded toward the screen edge,
             // square at the seam while the column claims, all four corners once folded
             // (the edge margin's swing carries the seam-side rounding with it).
             let r = ui.max_rect();
-            let rr = t.radius.round() as u8;
+            let rr = t.radius_island.round() as u8;
             let seam_round = (rr as f32 * (edge / 8.0)).round() as u8;
             let radius = if rtl {
                 egui::CornerRadius { nw: seam_round, ne: rr, sw: seam_round, se: rr }
             } else {
                 egui::CornerRadius { nw: rr, ne: seam_round, sw: rr, se: seam_round }
             };
-            crate::panels::paint_island_rect(ui.painter(), &t, r, radius);
-            // The mockup rail's `border-r`: a hairline at the seam, only while the column
-            // claims its half of the island.
-            if edge < 7.0 {
-                let x = if rtl { r.left() } else { r.right() };
-                ui.painter().line_segment([pos2(x, r.top()), pos2(x, r.bottom())], Stroke::new(1.0, t.separator));
-            }
+            // REV7: nothing separates the rail from the column — no seam hairline, and the
+            // shadow clips to the rail's half while the column claims its own (folded away,
+            // the rail is the whole island and paints the full shadow).
+            // LTR layout is [central | rail | column | screen edge]: the rail's RIGHT edge
+            // is the seam — keep the shadow at x <= r.right() (the column owns the east
+            // half). RTL mirrors (seam = left edge). No clip once the column folds away.
+            let shadow_clip = if edge < 7.0 {
+                Some(if rtl {
+                    egui::Rect::from_min_max(pos2(r.left(), r.top() - 100.0), pos2(r.right() + 100.0, r.bottom() + 100.0))
+                } else {
+                    egui::Rect::from_min_max(pos2(r.left() - 100.0, r.top() - 100.0), pos2(r.right(), r.bottom() + 100.0))
+                })
+            } else {
+                None
+            };
+            crate::panels::paint_island_rect(ui.painter(), &t, r, radius, t.card, shadow_clip, true);
         } else {
             // The separator is on the canvas side; the outer margin puts the island's edge 4px
             // further out than the content rect, so the line clears it by 2px at ±10.
@@ -213,10 +225,14 @@ pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let t = Tokens::get(ctx);
     let pro = t.pro;
     let width = if pro { 290.0 } else { 300.0 };
+    // REV8: the folded rail's flyout = the mockup's island-class flyout — radius 12,
+    // popover fill, NO border (bezel-free), the island shadow. Frame can express only
+    // one Shadow, so it carries the ambient; the 1px lit top edge is painted after the
+    // window below (inset semantics match the CSS `inset 0 1px 0 0 white/4%`).
     let frame = egui::Frame::NONE
         .fill(if t.islands { t.popover } else { t.card })
-        .stroke(egui::Stroke::new(1.0, t.card_border))
-        .corner_radius(egui::CornerRadius::same(t.radius_lg as u8))
+        .stroke(if t.islands { egui::Stroke::NONE } else { egui::Stroke::new(1.0, t.card_border) })
+        .corner_radius(if t.islands { egui::CornerRadius::same(t.radius_island as u8) } else { egui::CornerRadius::same(t.radius_lg as u8) })
         .shadow(egui::Shadow { offset: [0, 10], blur: 30, spread: 0, color: t.shadow })
         .inner_margin(egui::Margin::same(8));
     let mut window = egui::Window::new(tl!(g.label()).to_owned())
@@ -241,7 +257,7 @@ pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         window = window.current_pos(egui::pos2(x, y));
     }
     let mut close = false;
-    window.show(ctx, |ui| {
+    let shown = window.show(ctx, |ui| {
         // Photoshop-style tab header with a close box (preset_panels::float_window's shape).
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(tl!(g.label())).color(t.text).size(12.0).strong());
@@ -293,9 +309,42 @@ pub(crate) fn peek_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if let Some(current) = app.ui.panel_peek.as_mut() {
         current.first = false;
     }
+    // REV8: the flyout's lit top edge — 1px white-4% inset band following the radius,
+    // painted over the window (inset shadow semantics = on top of the fill).
+    if t.islands && !close {
+        if let Some(inner) = &shown {
+            paint_peek_top_edge(ctx, inner.response.rect, t.radius_island as f32);
+        }
+    }
+
     if close {
         app.ui.panel_peek = None;
     }
+}
+
+
+/// REV8: the flyout's lit top edge — 1px white-4% inset band following the radius,
+/// painted on the window's own layer (inset shadow semantics = on top of the fill,
+/// but below any menu/popup that opens higher).
+pub(crate) fn paint_peek_top_edge(ctx: &egui::Context, rect: egui::Rect, radius_island: f32) {
+    let layer = egui::LayerId::new(egui::Order::Middle, egui::Id::new("peek-top-edge"));
+    let painter = ctx.layer_painter(layer);
+    let r = radius_island.min(rect.width() / 2.0).min(rect.height() / 2.0);
+    let y = rect.top() + 0.5;
+    let mut pts = vec![egui::pos2(rect.left() + r, y)];
+    for (cx, a0, a1) in
+        [(rect.left() + r - 0.5, 180.0f32, 270.0), (rect.right() - r + 0.5, 270.0, 360.0)]
+    {
+        let cy = rect.top() + r - 0.5;
+        for i in 0..=6 {
+            let a = egui::remap(i as f32 / 6.0, 0.0..=1.0, a0..=a1).to_radians();
+            pts.push(egui::pos2(cx + (r - 0.5) * a.cos(), cy + (r - 0.5) * a.sin()));
+        }
+        if a0 == 180.0 {
+            pts.push(egui::pos2(rect.right() - r, y));
+        }
+    }
+    painter.add(egui::Shape::line(pts, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(10))));
 }
 
 #[cfg(test)]
