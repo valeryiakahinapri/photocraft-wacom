@@ -46,8 +46,28 @@ type Served = Arc<Mutex<ServedFonts>>;
 
 pub fn start() {
     eframe::WebLogger::init(log::LevelFilter::Info).ok();
-    if let Err(error) = crate::js_bridge::install_global() {
+    // The live-UI channel (PhotoCraftUI): created before the bridge installs so both sides
+    // share it — JS pushes requests, the shell drains them after its own logic each frame.
+    let (ui_inbox, ui_ctx): (crate::js_bridge::UiInbox, crate::js_bridge::UiCtx) = (Arc::default(), Arc::default());
+    if let Err(error) = crate::js_bridge::install_global(ui_inbox.clone(), ui_ctx.clone()) {
         log::error!("could not install the PhotoCraft JavaScript API: {error:?}");
+    }
+    let q = query();
+    let workspace_param = q
+        .split(['?', '&'])
+        .find_map(|pair| pair.strip_prefix("workspace=").map(str::to_string))
+        .map(|name| name.replace('+', " "));
+    let menu_param = q
+        .split(['?', '&'])
+        .find_map(|pair| pair.strip_prefix("menu=").map(str::to_string));
+    let mut pending_boot = Vec::new();
+    if let Some(name) = workspace_param.filter(|name| !name.trim().is_empty()) {
+        pending_boot.push(PendingUi::Workspace(name));
+    }
+    match menu_param.as_deref() {
+        Some("bar") => pending_boot.push(PendingUi::MenuBar),
+        Some("corner") => pending_boot.push(PendingUi::MenuCorner),
+        _ => {}
     }
     wasm_bindgen_futures::spawn_local(async {
         let Some(document) = web_sys::window().and_then(|w| w.document()) else {
@@ -121,7 +141,19 @@ pub fn start() {
                     }
                     let unsaved = Arc::new(AtomicBool::new(false));
                     guard_unload(unsaved.clone());
-                    Ok(Box::new(WebShell { app, inbox, place_inbox, unsaved, served, database, presets }))
+                    Ok(Box::new(WebShell {
+                        app,
+                        inbox,
+                        place_inbox,
+                        unsaved,
+                        served,
+                        database,
+                        presets,
+                        ui_inbox,
+                        ui_ctx,
+                        pending_boot,
+                        published_workspace: None,
+                    }))
                 }),
             )
             .await;
@@ -218,6 +250,25 @@ fn query() -> String {
     web_sys::window().and_then(|w| w.location().search().ok()).unwrap_or_default()
 }
 
+/// Writes `PhotoCraftUI.state.workspace` — the state mirror the bridge's no-argument
+/// `PhotoCraftUI.workspace()` reads back. Storage denial or a missing global (the bridge
+/// failed to install, or the page replaced it) is not an error: the app runs on regardless.
+fn publish_ui_state(workspace: &str) {
+    use wasm_bindgen::JsCast;
+    let global = js_sys::global();
+    let read = |from: &js_sys::Object, key: &str| {
+        js_sys::Reflect::get(from, &wasm_bindgen::JsValue::from_str(key))
+            .ok()
+            .and_then(|v| v.dyn_into::<js_sys::Object>().ok())
+    };
+    if let Some(global) = global.dyn_ref::<js_sys::Object>()
+        && let Some(ui) = read(global, "PhotoCraftUI")
+        && let Some(state) = read(&ui, "state")
+    {
+        let _ = js_sys::Reflect::set(&state, &wasm_bindgen::JsValue::from_str("workspace"), &wasm_bindgen::JsValue::from_str(workspace));
+    }
+}
+
 /// Reads the served font manifest, if the host has one, and lists its families in the font menus.
 fn load_font_manifest(served: Served, ctx: egui::Context) {
     wasm_bindgen_futures::spawn_local(async move {
@@ -288,6 +339,27 @@ struct WebShell {
     served: Served,
     database: Option<web_sys::IdbDatabase>,
     presets: crate::preset_bridge::Bridge,
+    /// Live-UI requests (`PhotoCraftUI.workspace`), drained after the app's own logic so a
+    /// switch lands the frame it was asked in.
+    ui_inbox: crate::js_bridge::UiInbox,
+    /// The app's context for the bridge to wake (`PhotoCraftUI` calls request a repaint).
+    ui_ctx: crate::js_bridge::UiCtx,
+    /// `?workspace=`/`?menu=` boot requests, held until the first tick has applied stored
+    /// preferences (`prefs_loaded`): applied sooner, the stored panel layout and selected
+    /// tool would overwrite them on that same first tick.
+    pending_boot: Vec<PendingUi>,
+    /// The workspace last published to `PhotoCraftUI.state` (cheap per-frame compare).
+    published_workspace: Option<String>,
+}
+
+/// A live-UI request the shell applies itself (URL boot params), or forwards by name.
+#[derive(Clone, Debug, PartialEq)]
+enum PendingUi {
+    Workspace(String),
+    /// `?menu=bar` — the classic horizontal menu strip (the web default is the corner button).
+    MenuBar,
+    /// `?menu=corner` — the Figma-style corner menu button (the web default; explicit for symmetry).
+    MenuCorner,
 }
 
 impl WebShell {
@@ -340,6 +412,44 @@ impl WebShell {
         }
         served_fonts::install(&mut self.app, arrived);
     }
+
+    /// Applies live-UI requests (`PhotoCraftUI` calls) and — once the first tick has applied
+    /// stored preferences — the `?workspace=`/`?menu=` boot params. Before that latch the
+    /// stored panel layout, dock and selected tool would overwrite the request on the very
+    /// tick it was applied to (the boot params would silently not stick for returning
+    /// visitors with saved preferences).
+    fn drain_ui_requests(&mut self, ctx: &egui::Context) {
+        // The bridge's wake handle: installed late so an early JS call cannot be lost to a
+        // sleeping app again (before the first frame there is nothing to wake — and nothing
+        // drained yet either).
+        *self.ui_ctx.lock().unwrap_or_else(|e| e.into_inner()) = Some(ctx.clone());
+        if !self.app.prefs_loaded() {
+            return;
+        }
+        let mut requests: Vec<PendingUi> = std::mem::take(&mut self.pending_boot);
+        let inbox: Vec<String> = std::mem::take(&mut *self.ui_inbox.lock().unwrap_or_else(|e| e.into_inner()));
+        requests.extend(inbox.into_iter().map(PendingUi::Workspace));
+        for request in requests {
+            match request {
+                PendingUi::Workspace(name) => {
+                    match photocraft_ui_egui::menus::invoke(&mut self.app, ctx, "window.workspace.select", serde_json::json!({"name": name})) {
+                        Ok(_) => log::info!("photocraft-web: workspace -> {name}"),
+                        Err(error) => log::warn!("photocraft-web: workspace \"{name}\" not applied: {error}"),
+                    }
+                }
+                PendingUi::MenuBar => self.app.ui.panels.menu_corner = false,
+                PendingUi::MenuCorner => self.app.ui.panels.menu_corner = true,
+            }
+        }
+        // Publish the state mirror (PhotoCraftUI.state) when the workspace moved: the bridge's
+        // no-argument `workspace()` reads it back.
+        let current = self.app.ui.workspace.clone();
+        if self.published_workspace.as_deref() != Some(current.as_str()) {
+            self.published_workspace = Some(current.clone());
+            publish_ui_state(&current);
+        }
+    }
+
 }
 
 impl eframe::App for WebShell {
@@ -376,6 +486,7 @@ impl eframe::App for WebShell {
         }
         self.serve_fonts(ctx);
         self.app.logic(ctx, frame);
+        self.drain_ui_requests(ctx);
         self.save_presets(ctx);
     }
 

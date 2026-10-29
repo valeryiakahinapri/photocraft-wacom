@@ -1,12 +1,25 @@
 //! Browser-callable, in-memory counterpart to the CLI's `commands`, `info`, `run`, `convert`
 //! and `batch` operations. Browser code supplies file bytes; this bridge never accesses paths.
+//!
+//! Two globals ship: `PhotoCraft` (this file's headless document bridge — its own session,
+//! for scripted open/run/export) and `PhotoCraftUI` (live-editor control: the workspace the
+//! visible app runs in, fed through [`UiInbox`] to the real app).
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use photocraft_codecs::{DdsCompression, DpxBits, JpegFormat, TiffCompression};
 use photocraft_engine::{Session, command_specs, file_cmds};
 use photocraft_io::{ExportOptions, TgaBits};
 use serde_json::{Map, Value, json};
+
+/// Live-UI requests from JavaScript (`PhotoCraftUI`), drained by the web shell each frame:
+/// workspace names to switch to (presets by alias, saved workspaces by exact name).
+pub(crate) type UiInbox = Arc<Mutex<Vec<String>>>;
+
+/// The live app's egui context, set once the shell's first frame runs: a JS call that queues a
+/// request uses it to wake the app, or the queue would sit unread while the app sleeps.
+pub(crate) type UiCtx = Arc<Mutex<Option<egui::Context>>>;
 
 #[derive(Default)]
 pub(crate) struct BrowserBridge {
@@ -351,7 +364,7 @@ mod wasm_api {
         static GLOBAL_METHODS: RefCell<Vec<JsMethod>> = const { RefCell::new(Vec::new()) };
     }
 
-    pub(crate) fn install_global() -> Result<(), JsValue> {
+    pub(crate) fn install_global(ui_inbox: super::UiInbox, ui_ctx: super::UiCtx) -> Result<(), JsValue> {
         let api = Object::new();
         add_method(&api, "commands", |input| {
             let filter = if input.is_undefined() || input.is_null() {
@@ -404,7 +417,43 @@ mod wasm_api {
 
         let global = js_sys::global();
         Reflect::set(&global, &JsValue::from_str("PhotoCraft"), &api)
-            .and_then(|set| if set { Ok(()) } else { Err(js_error("could not publish `globalThis.PhotoCraft`")) })
+            .and_then(|set| if set { Ok(()) } else { Err(js_error("could not publish `globalThis.PhotoCraft`")) })?;
+
+        // `PhotoCraftUI`: the LIVE editor's control surface (the app the page shows — not the
+        // headless `PhotoCraft` session above). v1: the workspace — set it to a preset (aliases
+        // welcome: "paint" → Painting) or a saved workspace name; the shell applies the request
+        // on its next frame and republishes `.state`. `workspace()` with no argument returns
+        // the last published state.
+        let ui = Object::new();
+        let state = Object::new();
+        Reflect::set(&state, &JsValue::from_str("workspace"), &JsValue::from_str("Essentials"))?;
+        Reflect::set(&ui, &JsValue::from_str("state"), &state)?;
+        let (for_get, inbox, wake) = (ui.clone(), ui_inbox, ui_ctx);
+        add_method(&ui, "workspace", move |input| {
+            if input.is_undefined() || input.is_null() {
+                return Reflect::get(&for_get, &JsValue::from_str("state"));
+            }
+            let name = if let Some(name) = input.as_string() {
+                name
+            } else {
+                string_field(&input, "name")?
+            };
+            if name.trim().is_empty() {
+                return Err(js_error("pass a workspace name, or nothing to read the current one"));
+            }
+            // Presets resolve to their canonical key for the reply; a name that isn't one may
+            // still be a saved workspace — the app decides when it drains the queue.
+            let reply = photocraft_ui_egui::workspace_ui::canonical(&name)
+                .map(str::to_string)
+                .unwrap_or_else(|| name.clone());
+            inbox.lock().unwrap_or_else(|e| e.into_inner()).push(name);
+            if let Some(ctx) = wake.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+                ctx.request_repaint();
+            }
+            to_js(&json!({"workspace": reply, "queued": true}))
+        })?;
+        Reflect::set(&global, &JsValue::from_str("PhotoCraftUI"), &ui)
+            .and_then(|set| if set { Ok(()) } else { Err(js_error("could not publish `globalThis.PhotoCraftUI`")) })
     }
 
     fn add_method(api: &Object, name: &str, f: impl FnMut(JsValue) -> Result<JsValue, JsValue> + 'static) -> Result<(), JsValue> {

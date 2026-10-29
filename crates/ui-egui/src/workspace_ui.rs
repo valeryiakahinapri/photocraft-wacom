@@ -132,6 +132,81 @@ fn open(app: &mut PhotocraftApp, kind: &str, f: Value) -> Result<Value, String> 
 /// Built-in workspace names (Window › Workspace presets).
 const PRESETS: [&str; 6] = ["Essentials", "Photography", "Painting", "Pixel Art", "Graphic and Web", "Motion"];
 
+/// Resolve a user- or embedder-supplied workspace name (case-insensitive, spaces/dashes/
+/// underscores ignored, short aliases welcome) to its preset key. Saved custom workspaces
+/// must use their exact names and are not aliased.
+pub fn canonical(name: &str) -> Option<&'static str> {
+    let fold = |s: &str| s.to_ascii_lowercase().replace([' ', '-', '_'], "");
+    let asked = fold(name);
+    let alias = |keys: &[&'static str]| keys.iter().find(|k| fold(k) == asked).copied();
+    alias(&PRESETS)
+        .or(alias(&["default"]))
+        .or(if ["paint", "paintingmode", "draw", "drawing"].contains(&asked.as_str()) { Some("Painting") } else { None })
+        .or(if ["photo", "photomode", "photoediting", "retouch"].contains(&asked.as_str()) { Some("Photography") } else { None })
+        .or(if ["web", "graphic", "graphics", "design", "typography"].contains(&asked.as_str()) { Some("Graphic and Web") } else { None })
+        .or(if ["pixel", "pixelartmode"].contains(&asked.as_str()) { Some("Pixel Art") } else { None })
+        .or(if ["motionmode", "animation", "video"].contains(&asked.as_str()) { Some("Motion") } else { None })
+}
+
+/// A preset also shapes the toolbar and picks the tool the mode starts from (S10): the rail
+/// keeps the tools that mode lives in, as Photoshop's workspace presets rearrange the room
+/// around the work. Essentials and Motion keep the whole toolbar and the current tool, so
+/// switching to them is a Reset; a preset switch replaces any Edit › Toolbar customizations
+/// (saved workspaces restore their own captured toolbar instead — `apply_custom`).
+pub(crate) fn shape_toolbar(app: &mut PhotocraftApp) {
+    use crate::state::Tool;
+    let keeps: &[Tool] = match app.ui.workspace.as_str() {
+        "Painting" => &[
+            Tool::Move, Tool::Eyedropper, Tool::ColorSampler, Tool::Brush, Tool::Pencil, Tool::MixerBrush,
+            Tool::ColorReplacement, Tool::CloneStamp, Tool::PatternStamp, Tool::Eraser, Tool::BackgroundEraser,
+            Tool::MagicEraser, Tool::Gradient, Tool::PaintBucket, Tool::Blur, Tool::Sharpen, Tool::Smudge,
+            Tool::Hand, Tool::RotateView, Tool::Zoom,
+        ],
+        "Photography" => &[
+            Tool::Move, Tool::RectMarquee, Tool::EllipseMarquee, Tool::SingleRowMarquee, Tool::SingleColumnMarquee,
+            Tool::Lasso, Tool::PolygonLasso, Tool::MagneticLasso, Tool::ObjectSelection, Tool::QuickSelection,
+            Tool::MagicWand, Tool::Crop, Tool::PerspectiveCrop, Tool::Eyedropper, Tool::ColorSampler, Tool::Ruler,
+            Tool::Note, Tool::Count, Tool::Remove, Tool::SpotHealing, Tool::Healing, Tool::Patch,
+            Tool::ContentAwareMove, Tool::RedEye, Tool::CloneStamp, Tool::PatternStamp, Tool::Brush, Tool::Pencil,
+            Tool::Eraser, Tool::BackgroundEraser, Tool::MagicEraser, Tool::Blur, Tool::Sharpen, Tool::Smudge,
+            Tool::Dodge, Tool::Burn, Tool::Sponge, Tool::Hand, Tool::RotateView, Tool::Zoom,
+        ],
+        "Graphic and Web" => &[
+            Tool::Move, Tool::Artboard, Tool::RectMarquee, Tool::EllipseMarquee, Tool::Lasso, Tool::PolygonLasso,
+            Tool::MagicWand, Tool::Crop, Tool::Slice, Tool::SliceSelect, Tool::Eyedropper, Tool::ColorSampler,
+            Tool::Note, Tool::Type, Tool::VerticalType, Tool::Pen, Tool::FreeformPen, Tool::CurvaturePen,
+            Tool::PathSelection, Tool::DirectSelection, Tool::Rectangle, Tool::EllipseShape, Tool::Triangle,
+            Tool::Polygon, Tool::Line, Tool::CustomShape, Tool::Gradient, Tool::PaintBucket, Tool::Brush,
+            Tool::Eraser, Tool::Hand, Tool::Zoom,
+        ],
+        "Pixel Art" => &[
+            Tool::Move, Tool::RectMarquee, Tool::EllipseMarquee, Tool::Lasso, Tool::MagicWand, Tool::Eyedropper,
+            Tool::ColorSampler, Tool::Pencil, Tool::Eraser, Tool::PaintBucket, Tool::Hand, Tool::Zoom,
+        ],
+        _ => &[],
+    };
+    let pick = match app.ui.workspace.as_str() {
+        "Painting" => Some(Tool::Brush),
+        "Photography" => Some(Tool::Move),
+        "Graphic and Web" => Some(Tool::Type),
+        "Pixel Art" => Some(Tool::Pencil),
+        _ => None,
+    };
+    if keeps.is_empty() {
+        app.session.prefs.edit(|p| p.toolbar.hidden.clear());
+    } else {
+        let hidden: Vec<String> = Tool::ALL
+            .iter()
+            .filter(|tool| !keeps.contains(tool))
+            .map(|tool| format!("{tool:?}"))
+            .collect();
+        app.session.prefs.edit(|p| p.toolbar.hidden = hidden);
+    }
+    if let Some(tool) = pick {
+        crate::tool_memory::select(app, tool);
+    }
+}
+
 /// Run a shell command, or open its dialog. `None` when `id` isn't ours.
 pub fn menu(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Value, String>> {
     if id == "view.thirtyTwoBitPreviewOptions" && no_params(params) {
@@ -211,11 +286,13 @@ fn new_workspace(app: &mut PhotocraftApp, p: &Value) -> Result<Value, String> {
     }
     let prefs = app.session.prefs().clone();
     let mut ws = json!({"panels": app.ui.panels, "dockTabs": app.ui.dock_tabs, "dock": app.ui.dock, "timelineOpen": app.ui.timeline.open, "docking": app.ui.docking, "dockingHidden": app.ui.docking_hidden, "dockingCollapsed": app.ui.docking_collapsed});
-    // The icon rail and menu bar flags belong to an embedding app's session, not to a saved
-    // layout: a workspace never brings back a window without its menus.
+    // The icon rail, menu bar and menu-corner flags belong to an embedding app's session, not
+    // to a saved layout: a workspace never brings back a window without its menus, nor flips
+    // the horizontal strip and the corner button.
     if let Some(panels) = ws.get_mut("panels").and_then(Value::as_object_mut) {
         panels.remove("rail");
         panels.remove("menu_bar");
+        panels.remove("menu_corner");
     }
     if p.get("keyboardShortcuts").and_then(Value::as_bool) == Some(true) {
         ws["shortcuts"] = json!(prefs.shortcuts);
@@ -246,7 +323,9 @@ fn delete_workspace(app: &mut PhotocraftApp, p: &Value) -> Result<Value, String>
 }
 
 fn select_workspace(app: &mut PhotocraftApp, p: &Value) -> Result<Value, String> {
-    let name = p.get("name").and_then(Value::as_str).ok_or("pass `name`")?.to_string();
+    let asked = p.get("name").and_then(Value::as_str).ok_or("pass `name`")?.to_string();
+    // Aliases welcome ("paint" → Painting), as the embedder-facing boot param and JS bridge use them.
+    let name = canonical(&asked).map(str::to_string).unwrap_or(asked);
     if PRESETS.contains(&name.as_str()) {
         app.ui.workspace = name.clone();
         crate::menus::apply_workspace(app);
@@ -524,6 +603,76 @@ mod tests {
 
     fn app() -> (PhotocraftApp, egui::Context) {
         (PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default()), egui::Context::default())
+    }
+
+    #[test]
+    fn canonical_resolves_presets_aliases_and_rejects_the_unknown() {
+        assert_eq!(canonical("Painting"), Some("Painting"));
+        assert_eq!(canonical("photography"), Some("Photography"));
+        assert_eq!(canonical("graphic-and-web"), Some("Graphic and Web"));
+        assert_eq!(canonical("Graphic and Web"), Some("Graphic and Web"));
+        assert_eq!(canonical("pixel_art"), Some("Pixel Art"));
+        assert_eq!(canonical("  pixelart  ".trim()), Some("Pixel Art"));
+        assert_eq!(canonical("default"), Some("Essentials"));
+        assert_eq!(canonical("paint"), Some("Painting"));
+        assert_eq!(canonical("photo"), Some("Photography"));
+        assert_eq!(canonical("web"), Some("Graphic and Web"));
+        assert_eq!(canonical("motion"), Some("Motion"));
+        assert_eq!(canonical("nonsense"), None);
+        assert_eq!(canonical(""), None);
+    }
+
+    #[test]
+    fn presets_shape_the_toolbar_and_pick_their_tool() {
+        let cases = [
+            ("Painting", Tool::Brush),
+            ("Photography", Tool::Move),
+            ("Graphic and Web", Tool::Type),
+            ("Pixel Art", Tool::Pencil),
+        ];
+        for (name, tool) in cases {
+            let (mut app, _ctx) = app();
+            app.ui.workspace = name.into();
+            crate::menus::apply_workspace(&mut app);
+            assert_eq!(app.ui.tool, tool, "{name} starts on its tool");
+            let hidden = &app.session.prefs().toolbar.hidden;
+            assert!(!hidden.is_empty(), "{name} hides some tools");
+            assert!(
+                !hidden.iter().any(|h| crate::state::Tool::from_name(h) == Some(tool)),
+                "{name} never hides its own pick"
+            );
+            // Every kept slot still holds at least one visible tool, and the mode's pick is kept.
+            for keep in [Tool::Move, Tool::Hand, Tool::Zoom] {
+                if keep == tool {
+                    continue;
+                }
+                let kept = !hidden.iter().any(|h| Tool::from_name(h) == Some(keep));
+                assert!(kept, "{name} keeps {keep:?} (every mode navigates)");
+            }
+        }
+    }
+
+    #[test]
+    fn essentials_and_motion_reset_the_toolbar_and_keep_the_tool() {
+        for name in ["Essentials", "Motion"] {
+            let (mut app, _ctx) = app();
+            app.session.prefs.edit(|p| p.toolbar.hidden = vec!["Brush".into()]);
+            app.ui.tool = Tool::Healing;
+            app.ui.workspace = name.into();
+            crate::menus::apply_workspace(&mut app);
+            assert!(app.session.prefs().toolbar.hidden.is_empty(), "{name} shows every tool");
+            assert_eq!(app.ui.tool, Tool::Healing, "{name} keeps the current tool");
+        }
+    }
+
+    #[test]
+    fn select_workspace_accepts_aliases_and_reports_the_canonical_name() {
+        let (mut app, ctx) = app();
+        let r = crate::menus::invoke(&mut app, &ctx, "window.workspace.select", json!({"name": "paint"})).unwrap();
+        assert_eq!(r["workspace"], "Painting");
+        assert_eq!(app.ui.workspace, "Painting");
+        assert_eq!(app.ui.tool, Tool::Brush);
+        assert!(crate::menus::invoke(&mut app, &ctx, "window.workspace.select", json!({"name": "nope"})).is_err());
     }
 
     #[test]

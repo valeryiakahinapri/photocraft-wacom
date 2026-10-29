@@ -898,6 +898,7 @@ pub fn apply(app: &mut PhotocraftApp, v: &Value) {
     if let Some(mut p) = v.get("panels").and_then(|p| serde_json::from_value::<Panels>(p.clone()).ok()) {
         // The embedding host owns these flags, including for layouts that serialize them.
         p.menu_bar = app.ui.panels.menu_bar;
+        p.menu_corner = app.ui.panels.menu_corner;
         p.rail = app.ui.panels.rail;
         app.ui.panels = p;
     }

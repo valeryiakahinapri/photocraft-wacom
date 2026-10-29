@@ -25,7 +25,10 @@ use crate::theme::{ThemeKind, Tokens};
 /// Shell runtime state for preferences, autosave and snapping (not serialised).
 #[derive(Default)]
 pub struct Runtime {
-    loaded: bool,
+    /// Set by the first [`load`] (this module); read by embedder boot paths
+    /// (`PhotocraftApp::prefs_loaded`) that must apply UI overrides AFTER the
+    /// stored preferences, or be overwritten by them.
+    pub(crate) loaded: bool,
     /// Preferences revision last written to storage (or loaded from it).
     saved_rev: u64,
     /// This instance's preferences as of `saved_rev`: the base of the three-way merge on save.

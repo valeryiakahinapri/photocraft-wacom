@@ -1265,6 +1265,13 @@ impl PhotocraftApp {
         self.gpu.is_some()
     }
 
+    /// Whether the first tick has already applied stored preferences (web embedders wait for
+    /// this before applying boot-time UI overrides such as `?workspace=`, which the stored
+    /// panel layout would otherwise overwrite on that same first tick).
+    pub fn prefs_loaded(&self) -> bool {
+        self.prefs_rt.loaded
+    }
+
     /// The GPU canvas's device health flag (tests inject faults through it).
     pub fn gpu_health(&self) -> Option<photocraft_gpu::DeviceHealth> {
         self.gpu.as_ref().map(|g| g.health().clone())

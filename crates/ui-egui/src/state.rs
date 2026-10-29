@@ -489,6 +489,12 @@ pub struct Panels {
     /// bar can hide it; the caption buttons of a custom title bar go with it.
     #[serde(default = "yes")]
     pub menu_bar: bool,
+    /// The in-window menus as ONE corner button whose popup lists them vertically (S10, the
+    /// web-app posture — Figma's logo menu) instead of the horizontal strip. The web build
+    /// defaults to it; `?menu=bar` and this flag choose either way. The keyboard's Alt-menu
+    /// navigation belongs to the strip (`menu_keys`); the corner menu is pointer-driven.
+    #[serde(default = "menu_corner_default")]
+    pub menu_corner: bool,
     /// The Gradient tool's options-bar swatch opened the Gradient Editor window (`gradient_ui`).
     /// Photoshop opens its Gradient Editor from that swatch; this is the same idea, drawn as a
     /// floating window rather than a modal so the canvas stays usable while a gradient is edited.
@@ -499,6 +505,12 @@ pub struct Panels {
 /// The persisted default for `toolbar_double` (REV7: expanded, matching the mockup).
 fn toolbar_double_default() -> bool {
     true
+}
+
+/// The persisted default for `menu_corner`: the web build shows the corner menu button (the
+/// web-app posture), native keeps the horizontal menu strip. A stored value always wins.
+fn menu_corner_default() -> bool {
+    cfg!(target_arch = "wasm32")
 }
 
 impl Default for Panels {
@@ -522,6 +534,7 @@ impl Default for Panels {
             full_screen_chrome: false,
             rail: true,
             menu_bar: true,
+            menu_corner: menu_corner_default(),
             gradient_editor: false,
         }
     }

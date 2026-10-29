@@ -1689,6 +1689,11 @@ pub fn apply_workspace(app: &mut PhotocraftApp) {
     p.history = history;
     p.properties = props;
     p.character = app.ui.workspace == "Graphic and Web";
+    // The left rail follows the mode too (S10): Painting keeps the paint tools and starts on
+    // the Brush, Photography the selection/retouch set on Move, and so on; Essentials and
+    // Motion show the whole toolbar and keep the tool (a Reset). Saved workspaces returned
+    // earlier with their own captured toolbar.
+    crate::workspace_ui::shape_toolbar(app);
     // Timeline is a floating panel, not a dock group. Showing it does not create or edit
     // a document timeline; changing away from Motion closes it just like its Close button.
     app.ui.timeline.open = app.ui.workspace == "Motion";
