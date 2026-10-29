@@ -70,8 +70,11 @@ struct Inner {
     entries: Arc<Mutex<Vec<CloudEntry>>>,
     /// The host's queued commands.
     commands: RefCell<VecDeque<HostCommand>>,
-    /// The last posted document list (change detection).
-    last_docs: RefCell<Vec<String>>,
+    /// The last posted per-doc state vector (change detection): the D2
+    /// `states` payloads — [{name, dirty, assetId?}] — so a dirty flip or
+    /// a PHASE-B identity re-key repushes, and nothing posts when nothing
+    /// changed (the F6 no-op law extends to `states`).
+    last_docs: RefCell<Vec<serde_json::Value>>,
     /// The last posted dirty flag (change detection).
     last_dirty: RefCell<bool>,
     /// PHASE-B identity: doc name → the library asset it was opened from
@@ -453,7 +456,8 @@ impl HostBridge {
     /// The shell's every-frame tick (EMBED-DESIGN-CLOUD B4): drain the
     /// host's queued commands (gated on no open dialog — a request that
     /// arrives mid-dialog defers), then post the MDI truth on change
-    /// (`docs`) and the unsaved-work truth on change (`dirty`).
+    /// (`docs`, now carrying the D2 per-doc `states`) and the unsaved-work
+    /// truth on change (`dirty`).
     pub fn tick(&self, app: &mut PhotocraftApp, ctx: &egui::Context) {
         if !self.inner.connected {
             return;
@@ -485,11 +489,31 @@ impl HostBridge {
                 }
             }
         }
-        let names: Vec<String> = app.session.documents().iter().map(|d| d.doc.name.clone()).collect();
+        let docs: Vec<(String, bool)> = app
+            .session
+            .documents()
+            .iter()
+            .map(|d| (d.doc.name.clone(), d.is_dirty()))
+            .collect();
+        // D2 (EMBED-DESIGN-MDI): the per-doc truth rides the docs event —
+        // `states: [{name, dirty, assetId?}]`, name-aligned and additive
+        // (old hosts ignore it; their parse guard drops unknown fields).
+        // The change detector compares the full tuple vector, so a dirty
+        // flip or an identity re-key repushes while a pure no-op frame
+        // never posts.
+        let states: Vec<serde_json::Value> = {
+            let identity = self.inner.identity.lock().unwrap_or_else(|e| e.into_inner());
+            docs.iter()
+                .map(|(name, dirty)| match identity.get(name) {
+                    Some(id) => serde_json::json!({ "name": name, "dirty": dirty, "assetId": id }),
+                    None => serde_json::json!({ "name": name, "dirty": dirty }),
+                })
+                .collect()
+        };
         let docs_changed = {
             let mut last = self.inner.last_docs.borrow_mut();
-            if *last != names {
-                *last = names.clone();
+            if *last != states {
+                *last = states.clone();
                 true
             } else {
                 false
@@ -503,9 +527,15 @@ impl HostBridge {
             // degrades to a mint instead of an update.
             {
                 let mut identity = self.inner.identity.lock().unwrap_or_else(|e| e.into_inner());
-                identity.retain(|name, _| names.contains(name));
+                identity.retain(|name, _| docs.iter().any(|(n, _)| n == name));
             }
-            self.inner.post_json(&serde_json::json!({ "channel": CHANNEL, "type": "docs", "names": names }));
+            let names: Vec<&str> = docs.iter().map(|(n, _)| n.as_str()).collect();
+            self.inner.post_json(&serde_json::json!({
+                "channel": CHANNEL,
+                "type": "docs",
+                "names": names,
+                "states": states,
+            }));
         }
         let dirty = app.has_unsaved_work();
         let dirty_changed = {
