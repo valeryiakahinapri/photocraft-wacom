@@ -1210,6 +1210,10 @@ impl ItemCache {
 /// (the right edge of the last title, or its left edge in a right-to-left UI, where File is at the
 /// right). The bar itself fills the row.
 pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
+    // The web posture (S10): one corner button instead of the horizontal strip.
+    if app.ui.panels.menu_corner {
+        return corner_menu(app, ui);
+    }
     // Built only while a menu is open: every item's enabled/checked state scales with the
     // document (layer lookups), which cost milliseconds per frame on large layouts (#125). While
     // one stays open, the items are reused until what they depend on changes.
@@ -1355,6 +1359,109 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
 
 fn press_gesture_id() -> egui::Id {
     egui::Id::new("menu-press-gesture")
+}
+
+/// The menus as one corner button (S10, the web-app posture — Figma's logo menu): the app mark,
+/// pressed, opens a popup that stacks the whole application menu VERTICALLY — each top menu a
+/// submenu row (the same `render_level` rows the horizontal strip shows in its popups, the same
+/// item cache and press-drag gesture). Pointer-driven like Figma's: the bar keeps the keyboard's
+/// Alt-menu. Returns the button's inner edge, `title_bar`'s contract with the rest of the row
+/// (the strip's standalone mark drawing is skipped while this owns the corner).
+fn corner_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
+    let kept = std::cell::Cell::new(app.menu_cache.take());
+    let built: std::cell::OnceCell<ItemCache> = std::cell::OnceCell::new();
+    let app_ref: &PhotocraftApp = app;
+    let rtl = crate::direction::is_rtl();
+    let lang = crate::i18n::current();
+    let mut clicked: Option<String> = None;
+    let mut nav = crate::menu_nav::Nav::load(ui.ctx());
+    let t = crate::theme::Tokens::get(ui.ctx());
+
+    // The button: the app mark, hover-lit like a menu title, press to open (the release of that
+    // same press must not close again — `title_press`'s gesture).
+    let side = if t.pro { 18.0 } else { 20.0 };
+    let (mark, button) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::click());
+    if button.hovered() || egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&button)) {
+        let r = mark.expand(3.0);
+        ui.painter().rect_filled(r, 4.0, ui.style().visuals.widgets.hovered.weak_bg_fill);
+    }
+    crate::brand::paint_mark(ui, mark);
+    ui.add_space(6.0);
+    // Tall cascades stay below the title bar (#319): the button's row is this menu's bar.
+    nav.bar_bottom = Some(mark.bottom());
+
+    let open = title_press(ui.ctx(), &button);
+    let config = egui::containers::menu::MenuConfig::new();
+    egui::Popup::menu(&button)
+        .align(crate::direction::below())
+        .open_memory(open)
+        .close_behavior(config.close_behavior)
+        .style(config.style.clone())
+        .info(egui::UiStackInfo::new(egui::UiKind::Menu).with_tag_value(egui::containers::menu::MenuConfig::MENU_CONFIG_TAG, config))
+        .show(|ui| {
+            let items = &built
+                .get_or_init(|| {
+                    let state = crate::native_menu::state_hash(app_ref, None);
+                    let input = crate::native_menu::had_input(ui.ctx());
+                    let items = kept.take().and_then(|c| c.reuse(state, input)).unwrap_or_else(|| menu_items(app_ref));
+                    ItemCache { state, items }
+                })
+                .items;
+            ui.set_min_width(200.0);
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            crate::widgets::style_spectrum_popup_menu(ui);
+            for top in TOP_MENUS {
+                let mine: Vec<&MenuItem> = items.iter().filter(|i| i.path.first().map(String::as_str) == Some(top)).collect();
+                let shown = crate::i18n::tr(lang, top).to_string();
+                let enabled = submenu_enabled(&mine);
+                let title: egui::WidgetText = egui::RichText::new(shown).color(t.text_dim).into();
+                ui.add_enabled_ui(enabled, |ui| {
+                    let (response, inner) = submenu_row(ui, title, |ui| {
+                        if mine.is_empty() {
+                            ui.weak(crate::i18n::tr(lang, "(coming soon)"));
+                            return;
+                        }
+                        if top == "Help" {
+                            // The search field scrolls with the rows, as part of the menu's content.
+                            crate::menu_nav::level(ui, 1, &mut nav, |ui, nav| {
+                                help_search(ui, items, false, &mut clicked, nav);
+                                render_level_rows(ui, &mine, 1, &mut clicked, nav);
+                            });
+                        } else {
+                            render_level(ui, &mine, 1, &mut clicked, &mut nav);
+                        }
+                    });
+                    if inner.is_some() {
+                        nav.set_anchor(0, response.rect);
+                    }
+                });
+            }
+        });
+    nav.store(ui.ctx());
+    // No menu open this frame: nothing is kept.
+    app.menu_cache = built.into_inner();
+    if ui.input(|i| i.pointer.primary_released() || !i.pointer.primary_down()) {
+        ui.ctx().data_mut(|d| d.remove::<bool>(press_gesture_id()));
+    }
+    if let Some(id) = clicked {
+        let ctx = ui.ctx().clone();
+        let alt = ctx.input(|i| i.modifiers.alt);
+        let r = if alt && crate::adjust_dialog::has_dialog(&id) {
+            let opened = crate::adjust_dialog::open_last(app, &id).map(|_| Value::Null).ok_or_else(|| "no document".to_string());
+            if opened.is_ok() {
+                crate::palette::note_recent(&ctx, &id);
+            }
+            opened
+        } else {
+            invoke(app, &ctx, &alt_click(id, alt), json!({}))
+        };
+        if let Err(e) = r {
+            app.ui.status = e;
+            app.ui.status_error = true;
+        }
+    }
+    if rtl { mark.left() } else { mark.right() }
 }
 
 /// A menu title's open/close command this frame, the press opens a closed menu (and

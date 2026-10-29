@@ -11,7 +11,7 @@ import numpy as np
 
 SESSION = "e2e-fold-s9"
 HUB = "http://localhost:3000"
-URL = f"{HUB}/photocraft/?webgl"
+URL = f"{HUB}/photocraft/?webgl&menu=bar"
 OUT = "/home/z/my-project/download/oracle"
 
 def ab(*args):

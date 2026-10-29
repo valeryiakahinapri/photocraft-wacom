@@ -28,7 +28,7 @@ import numpy as np
 from PIL import Image
 
 HUB = "http://localhost:3000"
-APP_URL = f"{HUB}/photocraft/?oracle=1&webgl"
+APP_URL = f"{HUB}/photocraft/?oracle=1&webgl&menu=bar"
 MOCKUP_URL = "http://localhost:8081/oracle"
 SESSION = "oracle-ab"
 OUT = Path("/home/z/my-project/download/oracle")
@@ -39,7 +39,7 @@ SETTLE_MS = 900
 # open, Brush, fit zoom) against the MIRROR STORY (MirrorClean export, annotakit layer
 # disabled) — the full-chrome comparison the default profile can't do (it closes the
 # Properties card to compare the bare skeleton).
-MIRROR_APP_URL = f"{HUB}/photocraft/?mirror=1&webgl"
+MIRROR_APP_URL = f"{HUB}/photocraft/?mirror=1&webgl&menu=bar"
 MIRROR_STORY_URL = f"{HUB}/storybook/iframe.html?id=review-photocraft--mirror-clean&viewMode=story"
 MIRROR_FONT = "12.5px InterM"
 MIRROR_SENTINEL = '[data-mirror="title-bar"]'  # story-side readiness + region markers
