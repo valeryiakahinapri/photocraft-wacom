@@ -1392,10 +1392,14 @@ fn corner_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
 
     let open = title_press(ui.ctx(), &button);
     let config = egui::containers::menu::MenuConfig::new();
+    // The release ending the press that opened this menu is a click "outside" the popup: it
+    // must not close it again (the bar's `opening` case, #press-gesture).
+    let opening = button.clicked() && ui.ctx().data(|d| d.get_temp::<bool>(press_gesture_id())).unwrap_or(false);
+    let close = if opening { egui::PopupCloseBehavior::IgnoreClicks } else { config.close_behavior };
     egui::Popup::menu(&button)
         .align(crate::direction::below())
         .open_memory(open)
-        .close_behavior(config.close_behavior)
+        .close_behavior(close)
         .style(config.style.clone())
         .info(egui::UiStackInfo::new(egui::UiKind::Menu).with_tag_value(egui::containers::menu::MenuConfig::MENU_CONFIG_TAG, config))
         .show(|ui| {
