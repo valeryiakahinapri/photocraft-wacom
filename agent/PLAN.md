@@ -24,36 +24,103 @@ Update it as items start/finish. Immediate next-session scope lives in HANDOFF.m
 - [ ] (await user confirmation of agent completion before taking ownership / committing)
 - Snapshot of WIP at 2026-10-24T00:22Z: `wip/2026-10-24T00:22Z/` on agent-meta branch
 
-### Phase 1.5 — local build fan-out (DONE + MEASURED, 2026-10-24 session 2)
-Local sandbox RUNS inherited-cache incremental wasm builds (not just proven-capable):
+### Phase R6-R8 — the mockup adoption arc (REV8 COMPLETE, 2026-10-28)
+- [x] REV6: island shell + ModernCanvas theme (oracle infra born in REV7)
+- [x] REV7: bezel-free restyle to the updated mockup + the pixel-exact oracle (48 checks, PASS)
+- [x] REV8: contrast fixed at the ROOT (edge grammar restored: 3-part island stack + lit top
+      edges + mockup-scale doc shadow + UNLIT workspace; ladder widened +44% panel-vs-canvas
+      ΔL, all measured from Chrome); the app mirrored as DOM into the SB (annotakit pins
+      PROVEN e2e); oracle grew a mirror profile (55 checks) — BOTH PASS on bundle 24f97aca
+
+### Phase S9 — STABLE-BASE MIGRATION (COMPLETE, 2026-10-29)
+- [x] Push forensics: work PAT correct (API-verified identity+scopes); the 403 is the
+      account's unverified primary email (`/user/emails` `"verified": false`) — owner fix.
+- [x] Gitlab recovered as the working remote (glpat → api/v4/user = valeryiakahinapri;
+      mirrors: photocraft-wacom + modern-canvas-studio created/filled; WAF 1/3 → retry loop)
+- [x] Version forensics: our lane was egui 0.37 (session-7 port onto the migrated main) = the
+      3.6fps regression lane; upstream v0.16.0 = stock egui 0.36.2
+- [x] Migration: `stable/right-panel-collapse` = afccf85e7 (pre-port work, stock 0.36.2) +
+      merge v0.16.0 (1 conflict) + 3-way REV7/8 delta (5 hunks, API map in commit messages)
+      → cargo check green → wasm df463fe4 (30.98MB, 4m warm build) → baked
+- [x] Gates on the stable build: oracle default 0/48 PASS + mirror 0/55 PASS + fold
+      ⇧Tab round-trip PASS + console clean; session-8's lost harness calibrations recovered
+      + committed; e2e_fold.py added as the permanent fold gate
+- [x] GH push unblock — DONE session 10: owner verified the account email; everything
+      (stable + feature + agent-meta + mockup) pushed to GitHub; both remotes in sync since
+- [ ] OWNER DECISION: floating Properties — A keep floating / B dock (2-flag) / C hybrid
+      (pin the PropertiesDeviation story); implement the pick + lockstep oracle updates
+- [ ] Icon-set/title-bar/options-cluster convergence — driven by the owner's mirror pins
+- [ ] Native test run (codespace or RAM window) + kittest run
+- [ ] PINs Route B (canvas-anchored) — RETIRED in favor of the DOM mirror (pins work today)
+- [ ] annotakit gh-mirror fine-grained PAT (owner) → threads survive browser loss
+- [ ] Watch upstream for the egui 0.37 perf fix → then port forward (recipe in the s9
+      commits; the 0.37 lane feature/right-panel-collapse@cc3aacd1c stays parked meanwhile)
+
+### Phase S10-S11 — owner round: perf verify + workspace bridge + corner menu + size report (COMPLETE, 2026-10-30)
+- [x] GH unblock + sync (ask 1): email verified (owner, s10); all branches pushed to BOTH
+      remotes — work repo (stable + feature + agent-meta) + mockup REV8 67867a7
+- [x] Stable-base + canvas scroll perf verified (ask 2, s10 commit 8008beb, scripts
+      fps_scroll_probe.py + gl_fps_probe.py): wasm frame = 3-5ms; the ~12.4fps sandbox number
+      is an ENV ceiling (SwiftShader raster between rAFs; headless rAF throttles to ~13fps
+      under input) — on a real GPU the app paints 60fps. Scroll sluggishness root cause =
+      egui's wheel glide (exponential_smooth_factor(0.90, 0.1, dt) spreading a web notch over
+      ~250ms) → fixed `smooth:false` at both wheel read sites (719cc5612)
+- [x] Workspace-type JS bridge (ask 3, 719cc5612): PhotoCraftUI JS global with state mirror;
+      ?workspace=paint/photo/etc presets shape the toolbar (shape_toolbar) + pick their tool
+      and boot into the mode; canonical() alias resolver; post-prefs-load latch (prefs_loaded
+      gate so stored prefs don't undo boot params on frame 1)
+- [x] Figma-style corner menu (ask 4): Panels.menu_corner with cfg(wasm32) default so web
+      shows the corner button (replaces the horizontal strip; click → vertical popup of all
+      menus); ?menu=bar|corner boot override; corner_menu() reuses the bar's
+      submenu_row/render_level machinery + item cache + press-drag gesture + #319 anchor
+      (1cf22ba31); popup-click survival fixed via PopupCloseBehavior::IgnoreClicks for the
+      release that opened the popup (644892996); MenuConfig::find(ui) inheritance fix so the
+      popup carries the panel's close_behavior + style (e461fdf3d)
+- [x] Wasm size report delivered (ask 5): 31.0MB bundle = code 24.94MB (80.4%) + data 5.93MB
+      (19.1%); per-crate/module/function code attribution via NEW scripts/wasm-name-attr.py
+      (raw pre-opt name section, v0 mangling); gzip transfer 13.4MB; full tables + exclusion
+      candidates in .agents/kb/wasm-size-attribution.md
+- [x] wasm-opt pass de-duplicated: trunk's data-wasm-opt="z" (index.html) is the ONLY pass
+      needed — the second pass GREW the bundle +39,187 bytes (measured on 685069da) and
+      trunk's cached wasm-opt version_123 rejects the old two-positional-args CLI;
+      scripts/trunk-bundle.sh trimmed (947288b2f, pushed GH+gitlab)
+- [x] Verified end-state: stable tip e461fdf3d; bundle ad49879d (31,007,104 bytes,
+      deterministic rebuild of the tip) baked + served, all hub routes 200; E2E 10/10
+      (scripts/e2e_s10.py — corner posture, popup click survival, File cascade, Escape close,
+      workspace=paint boot, JS bridge live switch, full-notch first-frame pan, zero glide
+      tail); oracle gates fresh PASS 0/48 + 0/55 + fold round-trip (byte-identical to the s9
+      reports — the oracle boots pin ?menu=bar by design); durable bundle refreshed
+      (photocraft-stable-right-panel-collapse-e461fdf3d.bundle, 82.4MB, supersedes efd46e426)
+
+### Phase S12 — pending owner decisions + open investigations (queue, 2026-10-30)
+- [ ] OWNER DECISION: wasm size exclusions (full report: .agents/kb/wasm-size-attribution.md)
+      — wasmi plugin runtime 1.08MB (Filter › Plug-ins feature), svg stack 711KB (vector
+      rendering), exr 226K, heif 250K (keep? iPhone photos — product decision), raw 167K
+      (Camera Raw feature), affinity 75K (Affinity import), i18n ~600KB savable (21 language
+      TSVs ≈ 829KB in the data section today), rayon 126K (needs an upstream-scale call-site
+      cfg refactor in crates/engine); realistic total ~2.5-3.5MB (~10%) for modest product
+      cost. NOT excludable: photocraft-psd (the native document format); photocraft-ipp
+      (already dead-stripped)
+- [ ] INVESTIGATE: the 2px light-gray separator remnant at the options-bar bottom — exact
+      repro: fresh boot → click the corner button at (28,28) → click the File row → press
+      Escape twice → a 1px (153,154,157) line at y≈98-99 spanning x 18-1196 persists; NEVER
+      happens in bar mode; the e461fdf3d MenuConfig inheritance fix was the suspected cause
+      but is UNCONFIRMED to remove it; the E2E D-check excludes the y 92-110 band meanwhile
+- [ ] Carried from S9 (unchanged, still pending): OWNER DECISION Properties A/B/C (keep
+      floating / dock 2-flag / hybrid — pin the PropertiesDeviation story) + the owner's
+      mirror pin directives (icon-set/title-bar/options-cluster convergence); annotakit
+      gh-mirror fine-grained PAT (owner); native test run + kittest; watch upstream for the
+      egui 0.37 perf fix
+
+### Phase 1.5 — local build fan-out (PILOT READY, 2026-10-24)
+Local sandbox proven capable of inherited-cache incremental wasm builds:
 - [x] Toolchain extracted locally (rustc 1.99.1 == codespace, trunk 0.21.14, wasm target)
 - [x] Storage lanes measured (overlay=build, ossfs/polarfs=transport/backup only)
-- [x] kb/local-build-fanout.md: full recipe + ALL measurements (pull 5min, sed 0.5s,
-      ~600 registry deps survive the transfer, true noop 0.3s, ui-egui edit to full wasm 70s,
-      trunk web bundle 11.3s; one-time refingerprint of workspace crates 8m30s)
-- [x] PILOT: RAN — pulled the live agent's own mid-flight tree+cache (its uncommitted
-      lto=false Cargo.toml came in the tar; verified env overrides hash identically, so the
-      feature branch builds warm WITHOUT committing that hack)
-- Working setup: /home/z/pc-edit (git worktree, feature branch) then rsync -rc (content
-      checksum, mtime-preserving) into /home/z/pc-build (mtime-pristine build space, no git).
-- Decision (unchanged): release/fat-LTO + wasm-opt + packaging stay on codespace; local does
-      cargo-check + LTO=false incrementals + kittest + patch authoring.
-
-### Phase 1.6 — panel rail feature (IMPLEMENTED, under test — 2026-10-24 session 2)
-The right-panel collapse UX the user asked for, used as the fan-out stress test:
-- [x] Design + sub-agent review round (REV2: agent/design/2026-10-24-panel-rail-collapse.md)
-- [x] feature/right-panel-collapse (6 commits, tip b6725404): rail-top panel-right toggle with
-      popover (Hide/Show Dock + a checkbox row per group via set_group_shown), Character in
-      the rail icons; collapsed dock shows 90-degree rotated label chips of shown groups
-      (RTL mirrored); clicking a label opens a floating peek window (tab pills + shared dock
-      body) closed by Escape / close box / click outside / dock return / dock::apply;
-      window.panel.peek command; P0 fixes (panel_docking no longer re-asserts
-      panels.dock=true; Character/Brushes rows routed safely); Hide Dock/Show Dock
-      localized in all 21 catalogs.
-- [ ] kittest result (native build ran in background; status /home/z/logs/test-native.status)
-- [ ] Remaining gates: cargo check wasm (L0-L6), clippy, xtask layers, i18n report
-- [ ] Deferred: panel_body dedupe (own commit + scroll assertions)
-- [ ] After the live agent commits its WIP: rebase feature commits onto plain origin/main
+- [x] kb/local-build-fanout.md written (profile facts, LTO=false env requirement, recipe)
+- [ ] PILOT: pull source+wasm-target tarball from codespace → noop-build test →
+      one-crate incremental timing (blocked on: live agent idle + WIP committed)
+- Decision: release/fat-LTO + wasm-opt + packaging stay on codespace; local does
+  cargo-check + LTO=false incrementals + patch authoring.
 
 ### Phase 2 — the actual web project integration (NOT STARTED — needs user input)
 - [ ] Define the host project: framework, hosting, embedding model (iframe? same-page canvas?
@@ -71,14 +138,17 @@ The right-panel collapse UX the user asked for, used as the fan-out stress test:
 
 ## Standing decisions (do not relitigate without new facts)
 
-- Codespace = build plane; local Z sandbox = control plane; REVISED 2026-10-24: local
-  runs the SAME toolchain (extracted from the backup) + inherited wasm cache as a second
-  build lane; codespace keeps release/heavy work.
+- **Version policy (S9): ride `stable/right-panel-collapse` (upstream tag v0.16.0, stock egui
+  0.36.2 + all our visual work). The 0.37 lane is parked until upstream fixes the perf
+  regression. Never adopt upstream main blindly — tags only, verified (fps + oracle).**
+- Codespace = build plane; local Z sandbox = control plane; no local Rust toolchain.
 - All agent docs durable on `agent-meta` branch of the work repo (+ /home/sync copies);
   main stays clean for upstream tracking.
 - Kit access: `ZAI_ROOT=/home/z/zai-codespaces CS_ACCOUNT=photocraft bash kit/cs <cmd>`.
 - Read-only in the codespace while the live agent owns the tree (until user hands over).
 - Never force-push; never touch /home/z/my-project with repo work (watchdog).
+- **Gitlab = the second durable remote** (glpat → account valeryiakahinapri; WAF 1/3 → retry
+  loop). GH pushes work again since session 10 (owner verified the email) — push BOTH.
 
 ## Open questions for the user (ask when convenient)
 
@@ -105,81 +175,9 @@ The right-panel collapse UX the user asked for, used as the fan-out stress test:
 - Upstream moves fast (67 commits backlog pushed in one day): keep fork merges frequent
   and small; rebases of custom work get harder the longer we drift.
 - Gitlab mirror: WAF blocks ~1/3 of HK-IP requests (retry pattern, background push).
-
-### Phase 1.7 — mockup refinement + review hub (DONE, 2026-10-24 session 3)
-
-The owner shipped the modern-canvas-studio mockup = the panel-behavior vision. REV4
-(design doc): constant icon rail in both states (rotated labels + popover dropped),
-direct dock toggle, re-click closes the peek, egui `Panel::show_collapsible` slide
-(the review caught my hand-rolled glide corrupting the persisted dock width), the
-customized-docking column keeps its instant toggle (documented deviation).
-Live E2E on the baked build caught the `menus::invoke` dispatch bug (app.run →
-engine → "unknown command"), fixed in production + tests; the feature is now
-browser-proven (toggle/peek/re-click/focus-loss all verified by pixel diff).
-Deliverables on the branch: 88875cde (icon rail), 06c6bcb4 (show_collapsible),
-bc1a67c3 (dispatch fix), fa187d81 (merge of main's bridge commit).
-New capability: the review hub (see kb/review-hub-and-pins.md) — /photocraft bake +
-annotakit /storybook with the app mounted IN the canvas doc; region pins E2E-proven
-against the wgpu UI; Route B (element pins via the bridge overlay) designed and
-scoped as the next slice. AccessKit-on-web verified dead (eframe discards the tree).
-
-### Phase 1.8 — REV5: reconcile the parallel rail implementation (DONE, 2026-10-24 session 5)
-
-The live agent's c8105921 landed the SAME mockup grammar, implemented independently
-(own dock_expanded state + ctx-temp flyout + width-tween + command + tests + kb).
-Reconciliation per REV5 (design doc) after a fresh-context opus audit:
-- [x] Base = ours (show_collapsible store-skip, panel_rail module, per-group peek
-      windows, menus::invoke routing); their exact_size tween REJECTED (audit re-verified
-      it persists mid-glide PanelState garbage their dock_last_width_id temp cannot
-      rescue on a fresh session).
-- [x] Adopted: dock_expanded semantic split (fold = persisted preference, survives Tab
-      round-trips — E2E-proven via the localStorage panelLayout.panels probe), rail
-      visuals (44/52 canvas island, RTL chevrons + labels + hairline), toolbar tween,
-      canvas/tab_strip/theme/prefs/widgets polish, shell command, their tests (ported),
-      i18n rows their commit omitted (2 keys x 21 catalogs).
-- [x] Merge commit 86d78db7 + kb amendment 38b1ded6 + test-type fix 55bc9d00 (tip).
-- [x] E2E re-proven on the merged build: fold/unfold, peek open/Escape/close, expand
-      returns pixel-identical, settled frames identical (no re-dispatch loop), Shift+Tab
-      independence, reload persistence, zero console errors. Evidence:
-      /home/sync/photocraft-agent/e2e-r5/ (13 screenshots + this worklog).
-- [x] Native test-compile now VERIFIED on this branch (first time; caught E0425
-      kittest::Query -> egui_kittest::Node). Kittest EXECUTION still parked (needs an
-      idle codespace window or RAM-safe local window with the dev server stopped).
-- [ ] Remaining follow-ups: customized-docking column animation (needs reveal/dockWidth
-      consumption moved into the draw closure), rail_click dead-end when column is
-      Shift+Tab-hidden (pre-existing), group_ids dead_code warning (upstream's).
-
-### Phase 1.9 — REV6: modern-canvas visual adoption (DONE, 2026-10-24 session 6)
-
-Owner: "the current result is still quite far off from this mockup … do a full audit
-and polishing round." Shipped: `ModernCanvas` theme = exact mockup tokens (island
-shell via inner-margin strips + painted islands, segment-scheme one-island right
-side, gradient active tool, doc-tab flip + status dot, Segmented pills, divide-y
-dock, radii 3/5/6), default everywhere + one-shot darkTheme migration; ROOT CAUSE of
-the old look = web.rs's boot-time Pro pin (removed). Two opus audit rounds; E2E
-pixel-proven (88/100 VLM on document state; remaining gaps = content differences).
-Design: agent/design/2026-10-24-modern-canvas-visual-adoption.md. Deviations stated
-in HANDOFF (floating Properties, status strip, brand mark). Next: Phase 2 gates on
-owner reaction to the new look.
-
-
-### Phase 1.10 — REV7: bezel-free second pass + the A/B oracle (DONE, 2026-10-26 session 7)
-
-Owner: "updated mockup — bezel-free, shade-as-boundary, bigger radius, right panel +
-toggle toolbar TOGETHER; build pixel-exactness between egui and the mockup." Shipped:
-(1) the port onto upstream's egui 0.37 main (8 conflicts resolved; the owner's
-"still the same" run had been the upstream-only build); (2) REV7 per the updated
-mockup — measured token sheet (#3B9CF6 primary; browser-rasterized, converters
-retired), radius ladder 6/7/9/12, bezel-free law (window/menu strokes → hairline,
-all card strokes dead), one-surface right side (seam hairline + segment stroke +
-shadow-bleed all gone via half-plane shadow clips), the dark workspace island with
-transparent tab strip + pill_fill active tabs + floating 32pt status pill (status
-bar retired from the bottom strip), toolbar 80/48 literal islands with the footer
-collapse toggle, flush divide-y dock cards, mockup-true canvas scrollbars;
-(3) **the oracle**: mockup /oracle route (mirror list + pinned solids) + app
-?oracle=1 seed + tools/oracle/run.py (L1-L4, isolation protocol, measured sheet) —
-PASS 0/48 on default state; VLM 88/100 (content-only gaps). Audits: 2 design
-rounds (32+11 findings) + 1 implementation round (P0 palette-not-landed, inverted
-clips, stuck-collapse footer — all fixed) + the oracle-driven fix loop (scrollbars,
-pill height/corners, seed determinism). E2E: fold/expand/⇧Tab lifecycle green,
-console clean. Next: Phase 2 gates on owner reaction; oracle states 2-4.
+- GH account: the primary-email-unverified push block was REAL and owner-fixed in session 10
+  (2026-10-29) — pushes now work, both remotes in sync. Keep the gitlab WAF retry habit.
+- Upstream's egui 0.36→0.37 migration regresses wasm fps ~3-4x (sibling matrix: tag 11.1 /
+  vendored 14.2 / main 3.6) — the reason we pin to v0.16.0. Re-verify before any port forward.
+- Platform-snapshot file rm in /home/z/.venv, .bun, .cache = whiteout (image layer) — only
+  upper-layer deletes free disk (this session's target/, registry/src, git-blob purge).
