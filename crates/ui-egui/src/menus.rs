@@ -1391,7 +1391,11 @@ fn corner_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
     nav.bar_bottom = Some(mark.bottom());
 
     let open = title_press(ui.ctx(), &button);
-    let config = egui::containers::menu::MenuConfig::new();
+    // The bar's close behaviour and style (as a menu config, exactly as the bar builds its
+    // popups): MenuConfig::new() bare would carry egui's DEFAULT style into the popup
+    // instead of the app's, diverging the corner menu from the strip's popup rendering.
+    let bar_cfg = egui::containers::menu::MenuConfig::find(ui);
+    let config = egui::containers::menu::MenuConfig::new().close_behavior(bar_cfg.close_behavior).style(bar_cfg.style.clone());
     // The release ending the press that opened this menu is a click "outside" the popup: it
     // must not close it again (the bar's `opening` case, #press-gesture).
     let opening = button.clicked() && ui.ctx().data(|d| d.get_temp::<bool>(press_gesture_id())).unwrap_or(false);
