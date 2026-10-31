@@ -85,6 +85,28 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Va
     Ok(r)
 }
 
+/// EMBED-DESIGN-CLOUD B4 — run a command on the host bridge's behalf: the
+/// discard guard applies, but the command palette's recents are NOT noted
+/// (a bridge-driven save is not a user-invoked command).
+pub fn invoke_from_host(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Value) -> Result<Value, String> {
+    if app.automation_input
+        && let Some(authorize) = app.services.automation_command.as_ref()
+    {
+        authorize(id, &params)?;
+    }
+    if crate::discard_ui::intercept(app, id, &params) {
+        return Ok(Value::Null);
+    }
+    invoke_unguarded(app, ctx, id, params)
+}
+
+/// EMBED-DESIGN-CLOUD B4 — may a host-driven command run right now? The
+/// same gate the menu bar uses (`modal_allows`): dialogs, unsaved-changes
+/// prompts, Camera Raw and a pending crop defer it.
+pub fn host_command_allowed(app: &PhotocraftApp, id: &str) -> bool {
+    modal_allows(app, id)
+}
+
 /// [`invoke`] without the unsaved-changes prompt, for once the user has already answered it.
 pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Value) -> Result<Value, String> {
     if let Some(tool) = crate::tool_shortcuts::tool(id) {
@@ -229,6 +251,37 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
                 app.open_dialog_file()
             }
         }
+        // EMBED-DESIGN-CLOUD B3 — File ▸ Open from Library ▸ <asset>: ask
+        // the connected host for the asset's bytes; it answers through the
+        // normal open path (the shell's inbox), so the asset opens as a new
+        // document tab.
+        id if id.starts_with(crate::cloud::LIBRARY_ITEM) => {
+            match app.services.cloud.as_ref() {
+                Some(cloud) => {
+                    let asset = &id[crate::cloud::LIBRARY_ITEM.len()..];
+                    if asset == "empty" {
+                        return Ok(Value::Null);
+                    }
+                    (cloud.open)(asset);
+                    Ok(Value::Null)
+                }
+                None => Err("no cloud library connected".to_string()),
+            }
+        }
+        // EMBED-DESIGN-CLOUD B3 — File ▸ Save to Library: every open
+        // document, in order, handed to the host (the write service routes
+        // the bytes when a cloud library is connected).
+        crate::cloud::SAVE_TO_LIBRARY => {
+            if app.services.cloud.is_none() {
+                return Err("no cloud library connected".to_string());
+            }
+            let (saved, failed) = crate::cloud::save_all_to_library(app);
+            if failed > 0 {
+                app.ui.status = format!("{failed} of {} documents could not be saved to the library", saved + failed);
+                app.ui.status_error = true;
+            }
+            Ok(json!({"saved": saved, "failed": failed}))
+        }
         "file.import.videoFramesToLayers" if params.get("path").and_then(Value::as_str).is_none() => {
             app.ask_folder(|app, path| app.run("file.import.videoFramesToLayers", json!({"path": path})).map_err(|e| e.to_string()))
         }
@@ -237,15 +290,34 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             // goes through Save As, so the original is never overwritten with less (#3806).
             let choices = crate::FormatChoices::from_params(&params, id)?;
             match params.get("path").and_then(Value::as_str) {
-                Some(path) => app.save_as_with(Some(path.to_string()), choices),
+                Some(path) => {
+                    // PHASE-B: an explicit-path save of an identity doc in a
+                    // layered format writes inline — arm the echo (a flat
+                    // format gate inside; a failed save clears the slot).
+                    crate::cloud::arm_save_for_path(app, path);
+                    let result = app.save_as_with(Some(path.to_string()), choices);
+                    if result.is_err() {
+                        crate::cloud::clear_pending(app);
+                    }
+                    result
+                }
                 None => {
                     let own = app.session.active().and_then(|d| d.path.clone().map(|p| (photocraft_engine::file_cmds::holds_at(&d.doc, &p), p, d)));
                     match own {
                         Some((true, path, d)) => {
                             // Another app changed the file since it was opened or saved: ask first (#6596).
+                            // PHASE-B: the in-place write arms the identity
+                            // echo (the disk-change intercept is web-inert —
+                            // no disk polling on wasm — so the write lands
+                            // inline here; a failed save clears the slot).
                             let doc = d.doc.id;
-                            crate::disk_change_prompt::intercept(app, doc, &path, false, crate::FormatChoices::default())
-                                .unwrap_or_else(|| app.save_in_place(path, crate::FormatChoices::default()))
+                            crate::cloud::arm_save_for_path(app, &path);
+                            let outcome = crate::disk_change_prompt::intercept(app, doc, &path, false, crate::FormatChoices::default())
+                                .unwrap_or_else(|| app.save_in_place(path, crate::FormatChoices::default()));
+                            if outcome.is_err() {
+                                crate::cloud::clear_pending(app);
+                            }
+                            outcome
                         }
                         Some((false, path, d)) if photocraft_engine::file_cmds::saves_in_place(&path) => {
                             // Its own file is layered but can't hold what the document has now.
@@ -772,6 +844,12 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         "file.save" | "file.saveAs" | "file.export.exportAs" | "file.export.quickExportAsPng" => {
             app.session.active().is_some() && app.services.export.is_some()
         }
+        // EMBED-DESIGN-CLOUD B3 — the cloud-library menu entries (present
+        // only while a cloud library is connected, which the dynamic
+        // insertion already guarantees; the belt-and-braces gate keeps them
+        // honest if anything else ever lists the ids).
+        crate::cloud::SAVE_TO_LIBRARY => app.services.cloud.is_some() && app.session.active().is_some(),
+        i if i.starts_with(crate::cloud::LIBRARY_ITEM) => app.services.cloud.is_some(),
         i if i.starts_with("window.toggle.") => true,
         "window.togglePanels" => true,
         // With one document open the key stays quiet, as in Photoshop, rather than reporting why.
@@ -1064,6 +1142,26 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
         };
         item.label = format!("Quick Export as {format}");
     }
+    // EMBED-DESIGN-CLOUD B3 — File ▸ Save to Library, after "Save a Copy…"
+    // (only while a cloud library is connected; save-ALL semantics — one
+    // click hands every open document to the host, like the host's own
+    // "Save to Library (N)" button).
+    if app.services.cloud.is_some()
+        && let Some(after) = items.iter().position(|i| i.id == "file.saveACopy")
+    {
+        items.insert(
+            after + 1,
+            MenuItem {
+                id: crate::cloud::SAVE_TO_LIBRARY.into(),
+                label: "Save to Library".into(),
+                path: vec!["File".into()],
+                shortcut: None,
+                enabled: app.session.active().is_some(),
+                checked: None,
+                color: None,
+            },
+        );
+    }
     // Smart Objects › Reveal in Finder names this platform's file manager (UI-217-19).
     if let Some(item) = items.iter_mut().find(|i| i.id == "layer.smartObjects.revealInFinder") {
         item.label = reveal_label().into();
@@ -1095,6 +1193,47 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
         });
         for (k, it) in recent.into_iter().enumerate() {
             items.insert(after + 1 + k, it);
+        }
+    }
+    // EMBED-DESIGN-CLOUD B3 — File ▸ Open from Library: a dynamic submenu of
+    // the host's listing (the openRecent pattern), inserted only while a
+    // cloud library is connected — a standalone editor never sees it.
+    if let Some(cloud) = app.services.cloud.as_ref() {
+        let entries = cloud.listing();
+        let lp: Vec<String> = vec!["File".into(), "Open from Library".into()];
+        let mut rows: Vec<MenuItem> = Vec::with_capacity(entries.len() + 1);
+        if entries.is_empty() {
+            rows.push(MenuItem {
+                id: format!("{}empty", crate::cloud::LIBRARY_ITEM),
+                label: "(no assets yet)".into(),
+                path: lp.clone(),
+                shortcut: None,
+                enabled: false,
+                checked: None,
+                color: None,
+            });
+        } else {
+            for e in &entries {
+                rows.push(MenuItem {
+                    id: format!("{}{}", crate::cloud::LIBRARY_ITEM, e.id),
+                    label: e.name.clone(),
+                    path: lp.clone(),
+                    shortcut: None,
+                    enabled: true,
+                    checked: None,
+                    color: None,
+                });
+            }
+        }
+        // After the whole Open Recent group when there is one, else after "Open As…".
+        let after = items
+            .iter()
+            .rposition(|i| i.path.len() == 2 && i.path[0] == "File" && i.path[1] == "Open Recent")
+            .or_else(|| items.iter().position(|i| i.id == "file.openAs"));
+        if let Some(at) = after {
+            for (k, it) in rows.into_iter().enumerate() {
+                items.insert(at + 1 + k, it);
+            }
         }
     }
     // Window › Workspace: saved workspaces follow the presets, checked while current.
