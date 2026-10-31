@@ -62,11 +62,11 @@ pub fn start() {
         .find_map(|pair| pair.strip_prefix("menu=").map(str::to_string));
     let mut pending_boot = Vec::new();
     if let Some(name) = workspace_param.filter(|name| !name.trim().is_empty()) {
-        pending_boot.push(PendingUi::Workspace(name));
+        pending_boot.push(crate::js_bridge::UiRequest::Workspace(name));
     }
     match menu_param.as_deref() {
-        Some("bar") => pending_boot.push(PendingUi::MenuBar),
-        Some("corner") => pending_boot.push(PendingUi::MenuCorner),
+        Some("bar") => pending_boot.push(crate::js_bridge::UiRequest::MenuBar),
+        Some("corner") => pending_boot.push(crate::js_bridge::UiRequest::MenuCorner),
         _ => {}
     }
     wasm_bindgen_futures::spawn_local(async {
@@ -168,6 +168,7 @@ pub fn start() {
                         ui_ctx,
                         pending_boot,
                         published_workspace: None,
+                        published_menu: None,
                         host,
                     }))
                 }),
@@ -274,10 +275,11 @@ fn query() -> String {
     web_sys::window().and_then(|w| w.location().search().ok()).unwrap_or_default()
 }
 
-/// Writes `PhotoCraftUI.state.workspace` — the state mirror the bridge's no-argument
-/// `PhotoCraftUI.workspace()` reads back. Storage denial or a missing global (the bridge
-/// failed to install, or the page replaced it) is not an error: the app runs on regardless.
-fn publish_ui_state(workspace: &str) {
+/// Writes `PhotoCraftUI.state.workspace` and `.state.menu` — the state mirror the
+/// bridge's no-argument `PhotoCraftUI.workspace()`/`menu()` read back. Storage denial or
+/// a missing global (the bridge failed to install, or the page replaced it) is not an
+/// error: the app runs on regardless.
+fn publish_ui_state(workspace: &str, menu_corner: bool) {
     use wasm_bindgen::JsCast;
     let global = js_sys::global();
     let read = |from: &js_sys::Object, key: &str| {
@@ -290,6 +292,8 @@ fn publish_ui_state(workspace: &str) {
         && let Some(state) = read(&ui, "state")
     {
         let _ = js_sys::Reflect::set(&state, &wasm_bindgen::JsValue::from_str("workspace"), &wasm_bindgen::JsValue::from_str(workspace));
+        let menu = if menu_corner { "corner" } else { "bar" };
+        let _ = js_sys::Reflect::set(&state, &wasm_bindgen::JsValue::from_str("menu"), &wasm_bindgen::JsValue::from_str(menu));
     }
 }
 
@@ -371,22 +375,14 @@ struct WebShell {
     /// `?workspace=`/`?menu=` boot requests, held until the first tick has applied stored
     /// preferences (`prefs_loaded`): applied sooner, the stored panel layout and selected
     /// tool would overwrite them on that same first tick.
-    pending_boot: Vec<PendingUi>,
+    pending_boot: Vec<crate::js_bridge::UiRequest>,
     /// The workspace last published to `PhotoCraftUI.state` (cheap per-frame compare).
     published_workspace: Option<String>,
+    /// The menu style last published to `PhotoCraftUI.state.menu` (same per-frame compare).
+    published_menu: Option<bool>,
     /// EMBED-DESIGN-CLOUD B4 — the host bridge (the command-queue drain +
     /// the docs/dirty truth posts + the esc forwards).
     host: crate::host_bridge::HostBridge,
-}
-
-/// A live-UI request the shell applies itself (URL boot params), or forwards by name.
-#[derive(Clone, Debug, PartialEq)]
-enum PendingUi {
-    Workspace(String),
-    /// `?menu=bar` — the classic horizontal menu strip (the web default is the corner button).
-    MenuBar,
-    /// `?menu=corner` — the Figma-style corner menu button (the web default; explicit for symmetry).
-    MenuCorner,
 }
 
 impl WebShell {
@@ -453,27 +449,29 @@ impl WebShell {
         if !self.app.prefs_loaded() {
             return;
         }
-        let mut requests: Vec<PendingUi> = std::mem::take(&mut self.pending_boot);
-        let inbox: Vec<String> = std::mem::take(&mut *self.ui_inbox.lock().unwrap_or_else(|e| e.into_inner()));
-        requests.extend(inbox.into_iter().map(PendingUi::Workspace));
+        let mut requests: Vec<crate::js_bridge::UiRequest> = std::mem::take(&mut self.pending_boot);
+        let inbox: Vec<crate::js_bridge::UiRequest> = std::mem::take(&mut *self.ui_inbox.lock().unwrap_or_else(|e| e.into_inner()));
+        requests.extend(inbox);
         for request in requests {
             match request {
-                PendingUi::Workspace(name) => {
+                crate::js_bridge::UiRequest::Workspace(name) => {
                     match photocraft_ui_egui::menus::invoke(&mut self.app, ctx, "window.workspace.select", serde_json::json!({"name": name})) {
                         Ok(_) => log::info!("photocraft-web: workspace -> {name}"),
                         Err(error) => log::warn!("photocraft-web: workspace \"{name}\" not applied: {error}"),
                     }
                 }
-                PendingUi::MenuBar => self.app.ui.panels.menu_corner = false,
-                PendingUi::MenuCorner => self.app.ui.panels.menu_corner = true,
+                crate::js_bridge::UiRequest::MenuBar => self.app.ui.panels.menu_corner = false,
+                crate::js_bridge::UiRequest::MenuCorner => self.app.ui.panels.menu_corner = true,
             }
         }
-        // Publish the state mirror (PhotoCraftUI.state) when the workspace moved: the bridge's
-        // no-argument `workspace()` reads it back.
+        // Publish the state mirror (PhotoCraftUI.state) when the workspace or the menu style
+        // moved: the bridge's no-argument `workspace()`/`menu()` read it back.
         let current = self.app.ui.workspace.clone();
-        if self.published_workspace.as_deref() != Some(current.as_str()) {
+        let menu_corner = self.app.ui.panels.menu_corner;
+        if self.published_workspace.as_deref() != Some(current.as_str()) || self.published_menu != Some(menu_corner) {
             self.published_workspace = Some(current.clone());
-            publish_ui_state(&current);
+            self.published_menu = Some(menu_corner);
+            publish_ui_state(&current, menu_corner);
         }
     }
 

@@ -13,9 +13,23 @@ use photocraft_engine::{Session, command_specs, file_cmds};
 use photocraft_io::{ExportOptions, TgaBits};
 use serde_json::{Map, Value, json};
 
+/// A live-UI request from JavaScript (`PhotoCraftUI`), drained by the web shell each frame.
+/// v2: the queue carries the menu style too — `?menu=` only applies at boot, while
+/// `PhotoCraftUI.menu()` flips the RUNNING app's corner button / strip.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum UiRequest {
+    /// Switch the workspace: a preset (aliases welcome: "paint" → Painting) or a saved
+    /// workspace's exact name — the app decides when it drains the queue.
+    Workspace(String),
+    /// The classic horizontal menu strip.
+    MenuBar,
+    /// The Figma-style corner menu button (the web default).
+    MenuCorner,
+}
+
 /// Live-UI requests from JavaScript (`PhotoCraftUI`), drained by the web shell each frame:
 /// workspace names to switch to (presets by alias, saved workspaces by exact name).
-pub(crate) type UiInbox = Arc<Mutex<Vec<String>>>;
+pub(crate) type UiInbox = Arc<Mutex<Vec<UiRequest>>>;
 
 /// The live app's egui context, set once the shell's first frame runs: a JS call that queues a
 /// request uses it to wake the app, or the queue would sit unread while the app sleeps.
@@ -423,12 +437,16 @@ mod wasm_api {
         // headless `PhotoCraft` session above). v1: the workspace — set it to a preset (aliases
         // welcome: "paint" → Painting) or a saved workspace name; the shell applies the request
         // on its next frame and republishes `.state`. `workspace()` with no argument returns
-        // the last published state.
+        // the last published state. v2: `menu("bar"|"corner")` — the LIVE menu-style switch
+        // (`?menu=` is boot-only); `.state.menu` mirrors the app's current style.
         let ui = Object::new();
         let state = Object::new();
         Reflect::set(&state, &JsValue::from_str("workspace"), &JsValue::from_str("Essentials"))?;
+        // The web default is the corner button (menu_corner_default); the shell republishes
+        // this field whenever the app's own state moves.
+        Reflect::set(&state, &JsValue::from_str("menu"), &JsValue::from_str("corner"))?;
         Reflect::set(&ui, &JsValue::from_str("state"), &state)?;
-        let (for_get, inbox, wake) = (ui.clone(), ui_inbox, ui_ctx);
+        let (for_get, inbox, wake) = (ui.clone(), ui_inbox.clone(), ui_ctx.clone());
         add_method(&ui, "workspace", move |input| {
             if input.is_undefined() || input.is_null() {
                 return Reflect::get(&for_get, &JsValue::from_str("state"));
@@ -446,11 +464,33 @@ mod wasm_api {
             let reply = photocraft_ui_egui::workspace_ui::canonical(&name)
                 .map(str::to_string)
                 .unwrap_or_else(|| name.clone());
-            inbox.lock().unwrap_or_else(|e| e.into_inner()).push(name);
+            inbox.lock().unwrap_or_else(|e| e.into_inner()).push(super::UiRequest::Workspace(name));
             if let Some(ctx) = wake.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                 ctx.request_repaint();
             }
             to_js(&json!({"workspace": reply, "queued": true}))
+        })?;
+        let (menu_get, menu_inbox, menu_wake) = (ui.clone(), ui_inbox, ui_ctx);
+        add_method(&ui, "menu", move |input| {
+            if input.is_undefined() || input.is_null() {
+                return Reflect::get(&menu_get, &JsValue::from_str("state"));
+            }
+            let asked = if let Some(style) = input.as_string() {
+                style
+            } else {
+                string_field(&input, "style")?
+            };
+            let style = asked.trim().to_ascii_lowercase();
+            let request = match style.as_str() {
+                "bar" => super::UiRequest::MenuBar,
+                "corner" => super::UiRequest::MenuCorner,
+                _ => return Err(js_error("pass \"bar\" or \"corner\", or nothing to read the current menu style")),
+            };
+            menu_inbox.lock().unwrap_or_else(|e| e.into_inner()).push(request);
+            if let Some(ctx) = menu_wake.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+                ctx.request_repaint();
+            }
+            to_js(&json!({"menu": style, "queued": true}))
         })?;
         Reflect::set(&global, &JsValue::from_str("PhotoCraftUI"), &ui)
             .and_then(|set| if set { Ok(()) } else { Err(js_error("could not publish `globalThis.PhotoCraftUI`")) })
